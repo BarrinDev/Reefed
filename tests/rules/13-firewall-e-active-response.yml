@@ -1,0 +1,107 @@
+# Bloqueios do firewall do Linux (UFW, firewalld) e resultado do Active Response.
+# Formato descrito em tests/run_tests.py.
+name: Firewall e Active Response
+cases:
+- name: 'UFW bloqueou acesso à porta do PostgreSQL'
+  log: 'Oct 22 14:50:01 dbserver kernel: [12345.678901] [UFW BLOCK] IN=eth0 OUT= MAC=00:11:22:33:44:55:66:77:88:99:aa:bb:08:00 SRC=203.0.113.50 DST=10.0.0.5 LEN=60 TOS=0x00 PREC=0x00 TTL=50 ID=54321 DF PROTO=TCP SPT=51234 DPT=5432 WINDOW=64240 RES=0x00 SYN URGP=0'
+  expect:
+    rule: 110250
+    level: 3
+    fields:
+      srcip: 203.0.113.50
+      dstport: '5432'
+    groups:
+    - reefed_firewall
+- name: 'firewalld rejeitou acesso à porta do MySQL'
+  log: 'Oct 22 14:50:01 dbserver kernel: filter_IN_public_REJECT: IN=eth0 OUT= MAC=00:11:22:33:44:55:66:77:88:99:aa:bb:08:00 SRC=198.51.100.7 DST=10.0.0.5 LEN=60 TOS=0x00 PREC=0x00 TTL=50 ID=54321 DF PROTO=TCP SPT=40000 DPT=3306 WINDOW=64240 RES=0x00 SYN URGP=0'
+  expect:
+    rule: 110250
+    fields:
+      srcip: 198.51.100.7
+- name: 'Bloqueio em outra porta (SSH) fica com a regra do Wazuh'
+  log: 'Oct 22 14:50:01 dbserver kernel: [12345.678901] [UFW BLOCK] IN=eth0 OUT= MAC=00:11:22:33:44:55:66:77:88:99:aa:bb:08:00 SRC=203.0.113.50 DST=10.0.0.5 LEN=60 TOS=0x00 PREC=0x00 TTL=50 ID=54321 DF PROTO=TCP SPT=51234 DPT=22 WINDOW=64240 RES=0x00 SYN URGP=0'
+  expect:
+    rule: 4100
+    no_alert: true
+- name: 'Conexão liberada (UFW ALLOW) na porta do banco não alerta'
+  log: 'Oct 22 14:50:01 dbserver kernel: [12345.678901] [UFW ALLOW] IN=eth0 OUT= MAC=00:11:22:33:44:55:66:77:88:99:aa:bb:08:00 SRC=203.0.113.50 DST=10.0.0.5 LEN=60 TOS=0x00 PREC=0x00 TTL=50 ID=54321 DF PROTO=TCP SPT=51234 DPT=3306 WINDOW=64240 RES=0x00 SYN URGP=0'
+  expect:
+    no_alert: true
+- name: 'iptables com prefixo DROP na porta do MySQL'
+  log: 'Oct 22 14:50:01 dbserver kernel: DROP IN=eth0 OUT= MAC=00:11:22:33:44:55:66:77:88:99:aa:bb:08:00 SRC=198.51.100.9 DST=10.0.0.5 LEN=60 TOS=0x00 PREC=0x00 TTL=50 ID=54321 DF PROTO=TCP SPT=40000 DPT=3306 WINDOW=64240 RES=0x00 SYN URGP=0'
+  expect:
+    rule: 110252
+    level: 3
+    fields:
+      srcip: 198.51.100.9
+- name: 'Firewall do Windows (pfirewall.log) bloqueou a porta do PostgreSQL'
+  log: 2026-10-22 14:50:01 DROP TCP 203.0.113.80 10.0.0.5 51234 5432 60 S 1234567 0 64240 - - - RECEIVE
+  location: C:\Windows\System32\LogFiles\Firewall\pfirewall.log
+  expect:
+    rule: 110252
+    fields:
+      srcip: 203.0.113.80
+      dstport: '5432'
+- name: 'Firewall do Windows bloqueou outra porta: fica com a regra do Wazuh'
+  log: 2026-10-22 14:50:01 DROP TCP 203.0.113.80 10.0.0.5 51234 445 60 S 1234567 0 64240 - - - RECEIVE
+  expect:
+    rule: 4101
+- name: 'Mesma origem insistindo nas portas do banco (10 bloqueios, Linux e Windows)'
+  steps:
+  - log: 'Oct 22 14:50:01 dbserver kernel: [12345.678901] [UFW BLOCK] IN=eth0 OUT= MAC=00:11:22:33:44:55:66:77:88:99:aa:bb:08:00 SRC=203.0.113.60 DST=10.0.0.5 LEN=60 TOS=0x00 PREC=0x00 TTL=50 ID=54321 DF PROTO=TCP SPT=51234 DPT=5432 WINDOW=64240 RES=0x00 SYN URGP=0'
+    repeat: 5
+    expect:
+      rule: 110250
+  - log: 2026-10-22 14:50:01 DROP TCP 203.0.113.60 10.0.0.5 51234 3306 60 S 1234567 0 64240 - - - RECEIVE
+    repeat: 4
+    expect:
+      rule: 110252
+  - log: 'Oct 22 14:50:01 dbserver kernel: [12345.678901] [UFW BLOCK] IN=eth0 OUT= MAC=00:11:22:33:44:55:66:77:88:99:aa:bb:08:00 SRC=203.0.113.60 DST=10.0.0.5 LEN=60 TOS=0x00 PREC=0x00 TTL=50 ID=54321 DF PROTO=TCP SPT=51234 DPT=5432 WINDOW=64240 RES=0x00 SYN URGP=0'
+    expect:
+      rule: 110251
+      level: 10
+      mitre:
+      - T1046
+- name: 'Nove bloqueios ainda não contam como insistência'
+  steps:
+  - log: 'Oct 22 14:50:01 dbserver kernel: [12345.678901] [UFW BLOCK] IN=eth0 OUT= MAC=00:11:22:33:44:55:66:77:88:99:aa:bb:08:00 SRC=203.0.113.60 DST=10.0.0.5 LEN=60 TOS=0x00 PREC=0x00 TTL=50 ID=54321 DF PROTO=TCP SPT=51234 DPT=5432 WINDOW=64240 RES=0x00 SYN URGP=0'
+    repeat: 8
+  - log: 'Oct 22 14:50:01 dbserver kernel: [12345.678901] [UFW BLOCK] IN=eth0 OUT= MAC=00:11:22:33:44:55:66:77:88:99:aa:bb:08:00 SRC=203.0.113.60 DST=10.0.0.5 LEN=60 TOS=0x00 PREC=0x00 TTL=50 ID=54321 DF PROTO=TCP SPT=51234 DPT=5432 WINDOW=64240 RES=0x00 SYN URGP=0'
+    expect:
+      rule: 110250
+- name: 'Active Response bloqueou o IP da força bruta'
+  log: '2026/10/22 14:55:01 active-response/bin/firewall-drop: {"version":1,"origin":{"name":"node01","module":"wazuh-execd"},"command":"add","parameters":{"extra_args":[],"alert":{"timestamp":"2026-10-22T14:55:00.000-0300","rule":{"level":10,"description":"Reefed: força bruta","id":"110200","firedtimes":1,"groups":["reefed","database"]},"agent":{"id":"001","name":"db1"},"data":{"srcip":"203.0.113.50","dstuser":"postgres"}},"program":"active-response/bin/firewall-drop"}}'
+  location: /var/ossec/logs/active-responses.log
+  expect:
+    rule: 110260
+    level: 8
+    fields:
+      command: add
+    groups:
+    - reefed_active_response
+- name: 'Active Response desbloqueou o IP depois do tempo'
+  log: '2026/10/22 15:05:01 active-response/bin/firewall-drop: {"version":1,"origin":{"name":"node01","module":"wazuh-execd"},"command":"delete","parameters":{"extra_args":[],"alert":{"timestamp":"2026-10-22T14:55:00.000-0300","rule":{"level":10,"description":"Reefed: força bruta","id":"110200","firedtimes":1,"groups":["reefed","database"]},"agent":{"id":"001","name":"db1"},"data":{"srcip":"203.0.113.50","dstuser":"postgres"}},"program":"active-response/bin/firewall-drop"}}'
+  location: /var/ossec/logs/active-responses.log
+  expect:
+    rule: 110261
+    level: 3
+- name: 'Active Response no Windows (netsh)'
+  log: '2026/10/22 14:55:01 active-response/bin/netsh.exe: {"version":1,"origin":{"name":"node01","module":"wazuh-execd"},"command":"add","parameters":{"extra_args":[],"alert":{"timestamp":"2026-10-22T14:55:00.000-0300","rule":{"level":12,"description":"Reefed: password spraying","id":"110201","firedtimes":1,"groups":["reefed","database"]},"agent":{"id":"002","name":"db-win"},"data":{"srcip":"203.0.113.70","dstuser":"sa"}},"program":"active-response/bin/netsh.exe"}}'
+  location: active-response\active-responses.log
+  expect:
+    rule: 110260
+- name: 'Active Response de outra regra (SSH) fica com a regra do Wazuh'
+  log: '2026/10/22 15:05:01 active-response/bin/firewall-drop: {"version":1,"origin":{"name":"node01","module":"wazuh-execd"},"command":"add","parameters":{"extra_args":[],"alert":{"timestamp":"2026-10-22T14:55:00.000-0300","rule":{"level":10,"description":"sshd brute","id":"5763","firedtimes":1,"groups":["sshd"]},"agent":{"id":"001","name":"db1"},"data":{"srcip":"203.0.113.51"}},"program":"active-response/bin/firewall-drop"}}'
+  location: /var/ossec/logs/active-responses.log
+  expect:
+    rule: 651
+# O log do Active Response repete o alerta inteiro, inclusive a linha original do
+# banco. Ele precisa cair no decoder do Wazuh (ar_log_json) e não ser lido de novo
+# como falha de login do MySQL, o que gerava alertas falsos de força bruta.
+- name: 'Active Response de um alerta do MySQL não vira nova falha de login'
+  log: '2026/10/22 17:00:12 active-response/bin/firewall-drop: {"version":1,"origin":{"name":"node01","module":"wazuh-execd"},"command":"add","parameters":{"extra_args":[],"alert":{"timestamp":"2026-10-22T14:00:12.925-0300","rule":{"level":10,"description":"Reefed: força bruta","id":"110200","firedtimes":1,"groups":["reefed","database"]},"agent":{"id":"008","name":"db-mysql"},"full_log":"2026-10-22T17:00:12.544272Z 33 [Note] [MY-010926] [Server] Access denied for user ''app''@''203.0.113.66'' (using password: YES)","data":{"srcip":"203.0.113.66","dstuser":"app"}},"program":"active-response/bin/firewall-drop"}}'
+  location: /var/ossec/logs/active-responses.log
+  expect:
+    decoder: ar_log_json
+    rule: 110260
+    not_rule: [110051, 110200, 110201]

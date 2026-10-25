@@ -1,0 +1,135 @@
+# Gerado a partir de logs reais do PostgreSQL 17, MySQL 8.4 e MariaDB 11.4 (e variações).
+# Formato descrito em tests/run_tests.py.
+name: Força bruta, password spraying e login depois de falhas
+cases:
+- name: 'PostgreSQL: 5 senhas erradas do mesmo IP'
+  steps:
+  - log: '2026-10-22 14:05:10.120 UTC [4242] user=app db=loja client=10.30.0.5 app=[unknown] FATAL:  password authentication failed for user "app"'
+    repeat: 4
+    expect:
+      rule: 110006
+  - log: '2026-10-22 14:05:10.120 UTC [4242] user=app db=loja client=10.30.0.5 app=[unknown] FATAL:  password authentication failed for user "app"'
+    expect:
+      rule: 110200
+      level: 10
+      fields:
+        srcip: 10.30.0.5
+      mitre:
+      - T1110.001
+      groups:
+      - authentication_failures
+      - reefed_bruteforce
+- name: 'MySQL: 5 senhas erradas do mesmo IP'
+  steps:
+  - log: '2026-10-22T14:05:10.954747Z 9 [Note] [MY-010926] [Server] Access denied for user ''app''@''10.30.0.6'' (using password: YES)'
+    repeat: 4
+    expect:
+      rule: 110051
+  - log: '2026-10-22T14:05:10.954747Z 9 [Note] [MY-010926] [Server] Access denied for user ''app''@''10.30.0.6'' (using password: YES)'
+    expect:
+      rule: 110200
+      level: 10
+      fields:
+        srcip: 10.30.0.6
+- name: 'MariaDB: 5 senhas erradas do mesmo IP'
+  steps:
+  - log: 20261022 14:05:10,dbserver,app,10.30.0.7,9,0,FAILED_CONNECT,,,1045
+    repeat: 4
+    expect:
+      rule: 110104
+  - log: 20261022 14:05:10,dbserver,app,10.30.0.7,9,0,FAILED_CONNECT,,,1045
+    expect:
+      rule: 110200
+      level: 10
+      fields:
+        srcip: 10.30.0.7
+- name: Falhas em bancos diferentes, mesmo IP, também somam
+  steps:
+  - log: '2026-10-22 14:05:10.120 UTC [4242] user=app db=loja client=10.30.0.8 app=[unknown] FATAL:  password authentication failed for user "app"'
+  - log: '2026-10-22T14:05:10.954747Z 9 [Note] [MY-010926] [Server] Access denied for user ''app''@''10.30.0.8'' (using password: YES)'
+  - log: 20261022 14:05:10,dbserver,app,10.30.0.8,9,0,FAILED_CONNECT,,,1045
+  - log: '2026-10-22 14:05:10.120 UTC [4242] user=app db=loja client=10.30.0.8 app=[unknown] FATAL:  password authentication failed for user "app"'
+  - log: '2026-10-22T14:05:10.954747Z 9 [Note] [MY-010926] [Server] Access denied for user ''app''@''10.30.0.8'' (using password: YES)'
+    expect:
+      rule: 110200
+- name: Falhas de IPs diferentes não viram força bruta
+  steps:
+  - log: '2026-10-22 14:05:10.120 UTC [4242] user=app db=loja client=10.30.1.1 app=[unknown] FATAL:  password authentication failed for user "app"'
+  - log: '2026-10-22 14:05:10.120 UTC [4242] user=app db=loja client=10.30.1.2 app=[unknown] FATAL:  password authentication failed for user "app"'
+  - log: '2026-10-22 14:05:10.120 UTC [4242] user=app db=loja client=10.30.1.3 app=[unknown] FATAL:  password authentication failed for user "app"'
+  - log: '2026-10-22 14:05:10.120 UTC [4242] user=app db=loja client=10.30.1.4 app=[unknown] FATAL:  password authentication failed for user "app"'
+  - log: '2026-10-22 14:05:10.120 UTC [4242] user=app db=loja client=10.30.1.5 app=[unknown] FATAL:  password authentication failed for user "app"'
+    expect:
+      rule: 110006
+- name: 'Password spraying: 5 usuários diferentes a partir do mesmo IP'
+  steps:
+  - log: '2026-10-22 14:05:10.120 UTC [4242] user=ana db=loja client=10.30.0.9 app=[unknown] FATAL:  password authentication failed for user "ana"'
+  - log: '2026-10-22 14:05:10.120 UTC [4242] user=bruno db=loja client=10.30.0.9 app=[unknown] FATAL:  password authentication failed for user "bruno"'
+  - log: '2026-10-22 14:05:10.120 UTC [4242] user=carla db=loja client=10.30.0.9 app=[unknown] FATAL:  password authentication failed for user "carla"'
+  - log: '2026-10-22 14:05:10.120 UTC [4242] user=diego db=loja client=10.30.0.9 app=[unknown] FATAL:  password authentication failed for user "diego"'
+    expect:
+      rule: 110006
+  - log: '2026-10-22 14:05:10.120 UTC [4242] user=elisa db=loja client=10.30.0.9 app=[unknown] FATAL:  password authentication failed for user "elisa"'
+    expect:
+      rule: 110201
+      level: 12
+      mitre:
+      - T1110.003
+- name: 'Força bruta distribuída: o mesmo usuário atacado de vários IPs'
+  steps:
+  - log: '2026-10-22 14:05:10.120 UTC [4242] user=financeiro db=loja client=10.40.0.1 app=[unknown] FATAL:  password authentication failed for user "financeiro"'
+  - log: '2026-10-22 14:05:10.120 UTC [4242] user=financeiro db=loja client=10.40.0.2 app=[unknown] FATAL:  password authentication failed for user "financeiro"'
+  - log: '2026-10-22 14:05:10.120 UTC [4242] user=financeiro db=loja client=10.40.0.3 app=[unknown] FATAL:  password authentication failed for user "financeiro"'
+  - log: '2026-10-22 14:05:10.120 UTC [4242] user=financeiro db=loja client=10.40.0.4 app=[unknown] FATAL:  password authentication failed for user "financeiro"'
+  - log: '2026-10-22 14:05:10.120 UTC [4242] user=financeiro db=loja client=10.40.0.5 app=[unknown] FATAL:  password authentication failed for user "financeiro"'
+  - log: '2026-10-22 14:05:10.120 UTC [4242] user=financeiro db=loja client=10.40.0.6 app=[unknown] FATAL:  password authentication failed for user "financeiro"'
+  - log: '2026-10-22 14:05:10.120 UTC [4242] user=financeiro db=loja client=10.40.0.7 app=[unknown] FATAL:  password authentication failed for user "financeiro"'
+    expect:
+      rule: 110006
+  - log: '2026-10-22 14:05:10.120 UTC [4242] user=financeiro db=loja client=10.40.0.8 app=[unknown] FATAL:  password authentication failed for user "financeiro"'
+    expect:
+      rule: 110202
+      level: 12
+      mitre:
+      - T1110
+- name: 'PostgreSQL: login aceito depois de 4 falhas'
+  steps:
+  - log: '2026-10-22 14:05:10.120 UTC [4242] user=app db=loja client=10.30.0.10 app=[unknown] FATAL:  password authentication failed for user "app"'
+    repeat: 4
+  - log: '2026-10-22 14:05:10.120 UTC [4242] user=app db=loja client=10.30.0.10 app=[unknown] LOG:  connection authorized: user=app database=loja application_name=psql'
+    expect:
+      rule: 110203
+      level: 13
+      mitre:
+      - T1110
+      - T1078
+      groups:
+      - authentication_success
+      - reefed_compromise
+- name: 'MariaDB: login aceito depois de 4 falhas'
+  steps:
+  - log: 20261022 14:05:10,dbserver,app,10.30.0.11,9,0,FAILED_CONNECT,,,1045
+    repeat: 4
+  - log: 20261022 14:05:10,dbserver,app,10.30.0.11,9,0,CONNECT,loja,,0
+    expect:
+      rule: 110203
+      level: 13
+- name: Login aceito de outro IP não é "login depois de falhas"
+  steps:
+  - log: '2026-10-22 14:05:10.120 UTC [4242] user=app db=loja client=10.30.0.12 app=[unknown] FATAL:  password authentication failed for user "app"'
+    repeat: 4
+  - log: '2026-10-22 14:05:10.120 UTC [4242] user=app db=loja client=127.0.0.1 app=[unknown] LOG:  connection authorized: user=app database=loja application_name=psql'
+    expect:
+      not_rule: 110203
+- name: Muitos acessos negados no banco para o mesmo usuário
+  steps:
+  - log: '2026-10-22 14:05:10.120 UTC [4242] user=app db=loja client=10.20.0.15 app=psql ERROR:  permission denied for table salarios'
+    repeat: 7
+    expect:
+      rule: 110008
+  - log: '2026-10-22 14:05:10.120 UTC [4242] user=app db=loja client=10.20.0.15 app=psql ERROR:  permission denied for table salarios'
+    expect:
+      rule: 110220
+      level: 10
+      mitre:
+      - T1213

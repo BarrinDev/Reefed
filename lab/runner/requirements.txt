@@ -1,0 +1,8 @@
+# Reefed lab - só drivers de banco em Python puro (sem compilar nada).
+pg8000==1.31.5
+PyMySQL==1.2.3
+# dependências travadas para o build ser reprodutível
+scramp==1.4.17
+python-dateutil==2.9.0.post0
+asn1crypto==1.5.1
+six==1.17.0

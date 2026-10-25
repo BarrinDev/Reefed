@@ -1,0 +1,48 @@
+<!--
+  Reefed - decoders do plugin de auditoria do MariaDB (server_audit, saída em arquivo)
+
+  Configuração esperada (veja agents/database/mariadb/):
+    plugin_load_add         = server_audit
+    server_audit_logging    = ON
+    server_audit_events     = CONNECT,QUERY,TABLE
+    server_audit_output_type = file
+    server_audit_file_path  = /var/log/mysql/server_audit.log
+
+  Formato: data,servidor,usuario,host,conexao,query_id,operacao,banco,objeto,retorno
+    20261022 13:13:24,db01,root,172.18.0.5,4,0,FAILED_CONNECT,,,1045
+    20261022 13:13:24,db01,root,172.18.0.5,7,10,QUERY,loja,'DROP TABLE clientes',0
+
+  Campos extraídos:
+    dstuser       usuário do banco
+    srcip         IP do cliente (quando for IP)
+    db.server     hostname do servidor de banco
+    db.client     host do cliente como aparece no log
+    db.connection id da conexão
+    db.operation  CONNECT, FAILED_CONNECT, DISCONNECT, QUERY, READ, WRITE, CREATE, DROP, ALTER, RENAME
+    db.name       banco
+    db.object     tabela (eventos TABLE) ou comando entre aspas (QUERY)
+    db.retcode    código de retorno (0 = sucesso, 1045 = acesso negado...)
+    db.query      comando SQL (eventos QUERY), com as aspas internas escapadas (\')
+-->
+
+<decoder name="reefed-mariadb-audit">
+  <prematch type="pcre2">^\d{8} \d{2}:\d{2}:\d{2},[^,]*,[^,]*,[^,]*,\d+,\d+,(?:CONNECT|FAILED_CONNECT|DISCONNECT|CHANGEUSER|QUERY\w*|READ|WRITE|CREATE|DROP|ALTER|RENAME),</prematch>
+</decoder>
+
+<decoder name="reefed-mariadb-audit-fields">
+  <parent>reefed-mariadb-audit</parent>
+  <regex type="pcre2">^\d{8} \d{2}:\d{2}:\d{2},([^,]*),([^,]*),([^,]*),(\d+),\d+,([A-Z_]+),([^,]*),(.*),(-?\d*)$</regex>
+  <order>db.server,dstuser,db.client,db.connection,db.operation,db.name,db.object,db.retcode</order>
+</decoder>
+
+<decoder name="reefed-mariadb-audit-fields">
+  <parent>reefed-mariadb-audit</parent>
+  <regex type="pcre2">^\d{8} \d{2}:\d{2}:\d{2},[^,]*,[^,]*,(\d{1,3}(?:\.\d{1,3}){3}|[0-9A-Fa-f]{0,4}:[0-9A-Fa-f:.]+),</regex>
+  <order>srcip</order>
+</decoder>
+
+<decoder name="reefed-mariadb-audit-fields">
+  <parent>reefed-mariadb-audit</parent>
+  <regex type="pcre2">,QUERY\w*,[^,]*,'(.*)',-?\d*$</regex>
+  <order>db.query</order>
+</decoder>

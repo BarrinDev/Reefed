@@ -1,0 +1,114 @@
+<!--
+  Reefed - atividade fora do horário comercial (IDs 110900-110949)
+
+  O horário "fora do expediente" fica nas variáveis abaixo, no formato do Wazuh:
+    REEFED_OFF_HOURS  janela de 24h "início - fim" (padrão 20:00 - 07:00, todo dia);
+    REEFED_OFF_DAYS   dias inteiros fora do expediente (padrão weekends; aceita
+                      nomes em inglês como "saturday, sunday" ou "weekends").
+  O setup.sh troca os dois valores a partir do .env.
+
+  O relógio usado é o do manager, então o fuso dele precisa estar certo
+  (variável TZ no docker-compose, padrão America/Sao_Paulo).
+
+  Este arquivo usa variável (elemento var), por isso as regras daqui não usam expressões
+  com o caractere "dólar": o Wazuh tentaria ler como variável.
+-->
+
+<var name="REEFED_OFF_HOURS">20:00 - 07:00</var>
+<var name="REEFED_OFF_DAYS">weekends</var>
+
+<group name="reefed,database,reefed_offhours,">
+
+  <!-- Sessões -->
+  <rule id="110900" level="8">
+    <if_group>reefed_session</if_group>
+    <time>$REEFED_OFF_HOURS</time>
+    <description>Reefed: acesso ao banco fora do horário comercial (usuário $(dstuser), origem $(db.client)).</description>
+    <mitre>
+      <id>T1078</id>
+    </mitre>
+    <group>pci_dss_10.2.5,pci_dss_10.6.1,gdpr_IV_32.2,gdpr_IV_35.7.d,hipaa_164.312.b,nist_800_53_AU.14,nist_800_53_AC.7,tsc_CC6.8,tsc_CC7.2,tsc_CC7.3,</group>
+  </rule>
+
+  <rule id="110901" level="7">
+    <if_group>reefed_session</if_group>
+    <weekday>$REEFED_OFF_DAYS</weekday>
+    <description>Reefed: acesso ao banco em dia sem expediente (usuário $(dstuser), origem $(db.client)).</description>
+    <mitre>
+      <id>T1078</id>
+    </mitre>
+    <group>pci_dss_10.2.5,pci_dss_10.6.1,gdpr_IV_32.2,gdpr_IV_35.7.d,hipaa_164.312.b,nist_800_53_AU.14,nist_800_53_AC.7,tsc_CC6.8,tsc_CC7.2,tsc_CC7.3,</group>
+  </rule>
+
+  <rule id="110902" level="12">
+    <if_sid>110210</if_sid>
+    <time>$REEFED_OFF_HOURS</time>
+    <description>Reefed: acesso ao banco a partir de IP desconhecido $(srcip) fora do horário comercial (usuário $(dstuser)).</description>
+    <mitre>
+      <id>T1078</id>
+    </mitre>
+    <group>reefed_unknown_ip,pci_dss_10.2.5,pci_dss_10.6.1,gdpr_IV_32.2,gdpr_IV_35.7.d,hipaa_164.312.b,nist_800_53_AU.14,nist_800_53_AC.7,tsc_CC6.1,tsc_CC6.8,tsc_CC7.2,tsc_CC7.3,</group>
+  </rule>
+
+  <rule id="110903" level="13">
+    <if_sid>110211</if_sid>
+    <time>$REEFED_OFF_HOURS</time>
+    <description>Reefed: conta administrativa $(dstuser) acessada a partir de IP desconhecido $(srcip) fora do horário comercial.</description>
+    <mitre>
+      <id>T1078.001</id>
+    </mitre>
+    <group>reefed_unknown_ip,pci_dss_10.2.2,pci_dss_10.2.5,pci_dss_10.6.1,gdpr_IV_32.2,gdpr_IV_35.7.d,hipaa_164.312.b,nist_800_53_AU.14,nist_800_53_AC.6,nist_800_53_AC.7,tsc_CC6.1,tsc_CC6.8,tsc_CC7.2,tsc_CC7.3,</group>
+  </rule>
+
+  <!-- Comandos destrutivos, privilégios e exportação fora do horário -->
+  <rule id="110904" level="12">
+    <if_sid>110401, 110402, 110403, 110404, 110405</if_sid>
+    <time>$REEFED_OFF_HOURS</time>
+    <description>Reefed: comando destrutivo fora do horário comercial enviado por $(dstuser) (origem $(db.client)).</description>
+    <mitre>
+      <id>T1485</id>
+    </mitre>
+    <group>reefed_destructive,pci_dss_10.2.7,gdpr_IV_32.2,hipaa_164.312.c.1,nist_800_53_AU.14,nist_800_53_SI.7,tsc_CC6.1,tsc_CC7.2,tsc_A1.2,</group>
+  </rule>
+
+  <rule id="110905" level="14">
+    <if_sid>110400</if_sid>
+    <time>$REEFED_OFF_HOURS</time>
+    <description>Reefed: DROP DATABASE/SCHEMA fora do horário comercial enviado por $(dstuser) (origem $(db.client)).</description>
+    <mitre>
+      <id>T1485</id>
+    </mitre>
+    <group>reefed_destructive,pci_dss_10.2.7,gdpr_IV_32.2,hipaa_164.312.c.1,nist_800_53_AU.14,nist_800_53_SI.7,tsc_CC6.1,tsc_CC7.2,tsc_A1.2,</group>
+  </rule>
+
+  <rule id="110906" level="11">
+    <if_sid>110500, 110502, 110504, 110506, 110507</if_sid>
+    <time>$REEFED_OFF_HOURS</time>
+    <description>Reefed: usuários/permissões do banco alterados fora do horário comercial por $(dstuser) (origem $(db.client)).</description>
+    <mitre>
+      <id>T1098</id>
+    </mitre>
+    <group>reefed_privilege,pci_dss_10.2.5,gdpr_IV_35.7.d,gdpr_IV_32.2,hipaa_164.312.b,nist_800_53_AC.2,nist_800_53_AU.14,tsc_CC6.2,tsc_CC6.3,tsc_CC7.2,</group>
+  </rule>
+
+  <rule id="110907" level="13">
+    <if_sid>110501, 110503, 110508</if_sid>
+    <time>$REEFED_OFF_HOURS</time>
+    <description>Reefed: privilégio de administrador concedido fora do horário comercial por $(dstuser) (origem $(db.client)).</description>
+    <mitre>
+      <id>T1098</id>
+    </mitre>
+    <group>reefed_privilege,pci_dss_10.2.2,pci_dss_10.2.5,gdpr_IV_35.7.d,gdpr_IV_32.2,hipaa_164.312.b,nist_800_53_AC.2,nist_800_53_AC.6,nist_800_53_AU.14,tsc_CC6.1,tsc_CC6.3,tsc_CC7.2,</group>
+  </rule>
+
+  <rule id="110908" level="11">
+    <if_sid>110602, 110603, 110610, 110611</if_sid>
+    <time>$REEFED_OFF_HOURS</time>
+    <description>Reefed: exportação/dump do banco fora do horário comercial por $(dstuser) (origem $(db.client)).</description>
+    <mitre>
+      <id>T1213</id>
+    </mitre>
+    <group>reefed_exfiltration,pci_dss_10.2.1,gdpr_IV_32.2,gdpr_IV_35.7.d,hipaa_164.312.b,nist_800_53_AU.14,tsc_CC6.1,tsc_CC7.2,</group>
+  </rule>
+
+</group>

@@ -1,0 +1,129 @@
+<!--
+  Reefed - usuários e privilégios do banco (IDs 110500-110549)
+
+  Criação de usuários, GRANT/REVOKE, superusuários, troca de senha e alteração
+  direta das tabelas de usuários. Valem para PostgreSQL, MySQL e MariaDB.
+  O MySQL e o MariaDB escondem a senha no log (IDENTIFIED BY aparece mascarado).
+-->
+
+<group name="reefed,database,">
+
+  <rule id="110500" level="8">
+    <if_group>reefed_query</if_group>
+    <field name="db.query" type="pcre2">(?i)(?:^|;)\s*(?:/\*(?!!).*?\*/\s*)*create\s+(?:user|role|login)\b</field>
+    <description>Reefed: usuário/role criado no banco por $(dstuser) (origem $(db.client)).</description>
+    <mitre>
+      <id>T1136</id>
+    </mitre>
+    <group>reefed_privilege,pci_dss_8.1.2,pci_dss_10.2.5,gdpr_IV_35.7.d,gdpr_IV_32.2,hipaa_164.312.a.2.I,hipaa_164.312.b,nist_800_53_AC.2,nist_800_53_IA.4,nist_800_53_AU.14,tsc_CC6.8,tsc_CC7.2,tsc_CC7.3,</group>
+  </rule>
+
+  <!-- Usuário criado/alterado com poder de superusuário, criar roles, ignorar RLS ou replicar -->
+  <rule id="110501" level="12">
+    <if_group>reefed_query</if_group>
+    <field name="db.query" type="pcre2">(?i)\b(?:create|alter)\s+(?:user|role)\b[^;]*\b(?:superuser|createrole|bypassrls|replication)\b</field>
+    <description>Reefed: usuário com privilégio de superusuário criado/alterado por $(dstuser) (origem $(db.client)).</description>
+    <mitre>
+      <id>T1136</id>
+      <id>T1098</id>
+    </mitre>
+    <group>reefed_privilege,pci_dss_8.1.2,pci_dss_10.2.2,pci_dss_10.2.5,gdpr_IV_35.7.d,gdpr_IV_32.2,hipaa_164.312.a.2.I,hipaa_164.312.b,nist_800_53_AC.2,nist_800_53_AC.6,nist_800_53_AU.14,tsc_CC6.2,tsc_CC6.3,tsc_CC6.8,tsc_CC7.2,</group>
+  </rule>
+
+  <!-- MySQL/MariaDB: usuário que pode entrar de qualquer lugar ('x'@'%') -->
+  <rule id="110502" level="10">
+    <if_group>reefed_query</if_group>
+    <field name="db.query" type="pcre2">(?i)\bcreate\s+user\s+(?:if\s+not\s+exists\s+)?\\?['"`]?[^'"`@\s]+\\?['"`]?\s*@\s*\\?['"`]?%</field>
+    <description>Reefed: usuário que aceita conexão de qualquer host ('%') criado por $(dstuser) (origem $(db.client)).</description>
+    <mitre>
+      <id>T1136</id>
+    </mitre>
+    <group>reefed_privilege,pci_dss_8.1.2,pci_dss_10.2.5,gdpr_IV_35.7.d,gdpr_IV_32.2,hipaa_164.312.b,nist_800_53_AC.2,nist_800_53_AU.14,tsc_CC6.8,tsc_CC7.2,</group>
+  </rule>
+
+  <!-- GRANT amplo: WITH GRANT OPTION, ALL ON *.*/DATABASE, SUPER/FILE/PROCESS, roles pg_* perigosas -->
+  <rule id="110503" level="12">
+    <if_group>reefed_query</if_group>
+    <field name="db.query" type="pcre2">(?i)\bgrant\b(?:[^;]*\bwith\s+(?:grant|admin)\s+option\b|\s+all(?:\s+privileges)?\s+on\s+(?:\*\.\*|all\s+tables|database|schema)\b|[^;]*\b(?:super|file|process|shutdown|create\s+user|system_user|reload|replication\s+slave|\w+_admin)\b[^;]*\bon\s+\*\.\*|\s+(?:pg_read_all_data|pg_write_all_data|pg_execute_server_program|pg_read_server_files|pg_write_server_files|pg_signal_backend|pg_checkpoint|pg_create_subscription)\b)</field>
+    <description>Reefed: privilégio amplo concedido (GRANT ALL / WITH GRANT OPTION / SUPER / FILE) por $(dstuser) (origem $(db.client)).</description>
+    <mitre>
+      <id>T1098</id>
+    </mitre>
+    <group>reefed_privilege,pci_dss_10.2.2,pci_dss_10.2.5,pci_dss_7.1,gdpr_IV_35.7.d,gdpr_IV_32.2,hipaa_164.312.a.1,hipaa_164.312.b,nist_800_53_AC.6,nist_800_53_AU.14,tsc_CC6.1,tsc_CC6.3,tsc_CC7.2,</group>
+  </rule>
+
+  <rule id="110504" level="5">
+    <if_group>reefed_query</if_group>
+    <field name="db.query" type="pcre2">(?i)(?:^|;)\s*(?:/\*(?!!).*?\*/\s*)*grant\b</field>
+    <description>Reefed: permissão concedida (GRANT) por $(dstuser) (origem $(db.client)).</description>
+    <mitre>
+      <id>T1098</id>
+    </mitre>
+    <group>reefed_privilege,pci_dss_10.2.5,pci_dss_7.1,gdpr_IV_32.2,nist_800_53_AC.6,nist_800_53_AU.14,tsc_CC6.3,</group>
+  </rule>
+
+  <rule id="110505" level="5">
+    <if_group>reefed_query</if_group>
+    <field name="db.query" type="pcre2">(?i)(?:^|;)\s*(?:/\*(?!!).*?\*/\s*)*revoke\b</field>
+    <description>Reefed: permissão revogada (REVOKE) por $(dstuser) (origem $(db.client)).</description>
+    <mitre>
+      <id>T1098</id>
+    </mitre>
+    <group>reefed_privilege,pci_dss_10.2.5,pci_dss_7.1,gdpr_IV_32.2,nist_800_53_AC.6,nist_800_53_AU.14,tsc_CC6.3,</group>
+  </rule>
+
+  <rule id="110506" level="6">
+    <if_group>reefed_query</if_group>
+    <field name="db.query" type="pcre2">(?i)\balter\s+(?:user|role)\b[^;]*\b(?:password|identified)\b|\bset\s+password\b</field>
+    <description>Reefed: senha de usuário do banco alterada por $(dstuser) (origem $(db.client)).</description>
+    <mitre>
+      <id>T1098</id>
+    </mitre>
+    <group>reefed_privilege,pci_dss_8.2.4,pci_dss_10.2.5,gdpr_IV_32.2,hipaa_164.312.d,nist_800_53_IA.5,nist_800_53_AU.14,tsc_CC6.1,</group>
+  </rule>
+
+  <rule id="110507" level="7">
+    <if_group>reefed_query</if_group>
+    <field name="db.query" type="pcre2">(?i)(?:^|;)\s*(?:/\*(?!!).*?\*/\s*)*drop\s+(?:user|role)\b</field>
+    <description>Reefed: usuário/role removido do banco por $(dstuser) (origem $(db.client)).</description>
+    <mitre>
+      <id>T1531</id>
+    </mitre>
+    <group>reefed_privilege,pci_dss_8.1.4,pci_dss_10.2.5,gdpr_IV_32.2,nist_800_53_AC.2,nist_800_53_AU.14,tsc_CC6.2,</group>
+  </rule>
+
+  <!-- Escrever direto nas tabelas de usuários (mysql.user, mysql.global_priv, pg_authid) -->
+  <rule id="110508" level="12">
+    <if_group>reefed_query</if_group>
+    <field name="db.query" type="pcre2">(?i)\b(?:update|insert\s+into|delete\s+from|replace\s+into)\s+(?:`?mysql`?\.`?(?:user|global_priv|db|tables_priv|columns_priv|proxies_priv|roles_mapping)\b|(?:pg_catalog\.)?pg_authid\b)</field>
+    <description>Reefed: tabela interna de usuários do banco alterada diretamente por $(dstuser) (origem $(db.client)).</description>
+    <mitre>
+      <id>T1098</id>
+      <id>T1556</id>
+    </mitre>
+    <group>reefed_privilege,pci_dss_10.2.2,pci_dss_10.2.5,gdpr_IV_35.7.d,gdpr_IV_32.2,hipaa_164.312.b,nist_800_53_AC.2,nist_800_53_AC.6,nist_800_53_AU.14,tsc_CC6.1,tsc_CC6.3,tsc_CC7.2,</group>
+  </rule>
+
+  <!-- Feito por quem não é administrador -->
+  <rule id="110520" level="12">
+    <if_sid>110500, 110502, 110504</if_sid>
+    <list field="user" lookup="not_match_key">etc/lists/reefed/db-admins</list>
+    <description>Reefed: usuário que não é administrador ($(dstuser), origem $(db.client)) criou usuário ou concedeu permissão no banco.</description>
+    <mitre>
+      <id>T1098</id>
+    </mitre>
+    <group>reefed_privilege,reefed_non_admin,pci_dss_10.2.2,pci_dss_10.2.5,gdpr_IV_35.7.d,gdpr_IV_32.2,hipaa_164.312.b,nist_800_53_AC.2,nist_800_53_AC.6,nist_800_53_AU.14,tsc_CC6.1,tsc_CC6.3,tsc_CC7.2,</group>
+  </rule>
+
+  <rule id="110521" level="14">
+    <if_sid>110501, 110503, 110508</if_sid>
+    <list field="user" lookup="not_match_key">etc/lists/reefed/db-admins</list>
+    <description>Reefed: usuário que não é administrador ($(dstuser), origem $(db.client)) concedeu privilégio de administrador no banco (possível escalada de privilégio).</description>
+    <mitre>
+      <id>T1098</id>
+      <id>T1068</id>
+    </mitre>
+    <group>reefed_privilege,reefed_non_admin,pci_dss_10.2.2,pci_dss_10.2.5,gdpr_IV_35.7.d,gdpr_IV_32.2,hipaa_164.312.b,nist_800_53_AC.2,nist_800_53_AC.6,nist_800_53_AU.14,tsc_CC6.1,tsc_CC6.3,tsc_CC7.2,</group>
+  </rule>
+
+</group>

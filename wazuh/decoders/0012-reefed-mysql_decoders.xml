@@ -1,0 +1,198 @@
+<!--
+  Reefed - decoders do MySQL 8.x (error log, slow query log e general query log)
+
+  Configuração esperada (arquivo pronto em agents/database/mysql/reefed.cnf):
+    log_error                 = /var/log/mysql/error.log
+    log_error_verbosity       = 3      # registra "Access denied" (MY-010926)
+    slow_query_log            = ON     # um registro por comando, com usuário e IP
+    slow_query_log_file       = /var/log/mysql/slow.log
+    long_query_time           = 0      # registra todos os comandos
+    log_slow_extra            = ON     # Errno, Bytes_sent...
+    log_slow_admin_statements = ON     # ALTER TABLE, OPTIMIZE...
+    general_log               = ON     # usado só para as linhas Connect (sessões)
+    general_log_file          = /var/log/mysql/general.log
+
+  Por que três arquivos:
+    - error log: falhas de login, início e parada do servidor;
+    - slow log: todos os comandos SQL com usuário, IP, código de erro e número de
+      linhas devolvidas (base das regras de SQL injection, DDL e exportação);
+    - general log: as linhas "Connect" mostram cada nova conexão com usuário e IP
+      (regras de horário e IP desconhecido). As linhas de comando do general log não
+      dizem quem executou, por isso o agente só envia as linhas Connect (opção restrict).
+
+  O slow log tem várias linhas por comando. O agente junta as linhas com
+  multi-line-regex (início em "# Time:"), então o evento chega assim:
+    # Time: 2026-10-22T13:36:29.653144Z # User@Host: root[root] @  [172.18.0.5]  Id:    24 # Query_time: 0.000210  Lock_time: 0.000002 Rows_sent: 2  Rows_examined: 2 Thread_id: 24 Errno: 0 ... SET timestamp=1792676189; SELECT * FROM clientes;
+
+  O error log e o general log começam com timestamp ISO 8601
+  (2026-10-22T13:11:03.954747Z). O pré-decoder do Wazuh reconhece esse formato e
+  corta um tamanho fixo do começo da linha, então o texto que chega aos decoders
+  pode começar no meio do nível ("ote] [MY-010926]...") ou no id da conexão do
+  general log ("13 Connect	..."). Por isso as expressões abaixo não dependem do
+  início da linha.
+
+  Exemplos:
+    2026-10-22T13:11:03.954747Z 9 [Note] [MY-010926] [Server] Access denied for user 'root'@'172.18.0.4' (using password: YES)
+    2026-10-22T13:11:03.920045Z	    8 Connect	root@172.18.0.4 on loja using SSL/TLS
+
+  Campos extraídos:
+    dstuser          usuário do banco
+    srcip            IP do cliente (quando for IP)
+    db.client        cliente como aparece no log (IP ou hostname)
+    db.name          banco (slow log: linha "use"; general log: Connect / Init DB)
+    db.query         comando SQL (slow log)
+    db.connection    id da conexão (slow log)
+    db.errno         código de erro do comando, 0 = sucesso (slow log com log_slow_extra)
+    db.rows_sent     linhas devolvidas ao cliente (slow log)
+    db.rows_examined linhas lidas pelo servidor (slow log)
+    db.bytes_sent    bytes devolvidos ao cliente (slow log com log_slow_extra)
+    db.query_time    duração do comando em segundos (slow log)
+    db.severity      nível do error log (pode vir truncado pelo pré-decoder: "ote", "RROR")
+    db.code          código do error log (MY-010926)
+    db.component     Server, InnoDB, Repl...
+    db.command       comando do general log (Connect, Query, Quit...) ou comando
+                     administrativo do slow log (Quit, Init DB...)
+    db.message       texto da mensagem
+-->
+
+<!-- Error log -->
+<decoder name="reefed-mysql-error">
+  <prematch type="pcre2">\] \[MY-\d{6}\] \[\w+\] </prematch>
+</decoder>
+
+<decoder name="reefed-mysql-error-fields">
+  <parent>reefed-mysql-error</parent>
+  <regex type="pcre2">(\w*)\] \[(MY-\d{6})\] \[(\w+)\] (.*)$</regex>
+  <order>db.severity,db.code,db.component,db.message</order>
+</decoder>
+
+<decoder name="reefed-mysql-error-fields">
+  <parent>reefed-mysql-error</parent>
+  <regex type="pcre2">Access denied for user '([^']*)'@'([^']*)'</regex>
+  <order>dstuser,db.client</order>
+</decoder>
+
+<decoder name="reefed-mysql-error-fields">
+  <parent>reefed-mysql-error</parent>
+  <regex type="pcre2">Access denied for user '[^']*'@'(\d{1,3}(?:\.\d{1,3}){3}|[0-9A-Fa-f]{0,4}:[0-9A-Fa-f:.]+)'</regex>
+  <order>srcip</order>
+</decoder>
+
+<decoder name="reefed-mysql-error-fields">
+  <parent>reefed-mysql-error</parent>
+  <regex type="pcre2">Received SHUTDOWN from user (\S+)\.</regex>
+  <order>dstuser</order>
+</decoder>
+
+<!-- Slow query log (entrada já juntada pelo agente) -->
+<decoder name="reefed-mysql-slow">
+  <prematch type="pcre2">^# Time: \S+(?: \S+)? # User@Host: </prematch>
+</decoder>
+
+<decoder name="reefed-mysql-slow-fields">
+  <parent>reefed-mysql-slow</parent>
+  <regex type="pcre2"># User@Host: ([^\[\s]*)\[</regex>
+  <order>dstuser</order>
+</decoder>
+
+<decoder name="reefed-mysql-slow-fields">
+  <parent>reefed-mysql-slow</parent>
+  <regex type="pcre2"># User@Host: \S* @ (?|\S* ?\[([^\]\s]+)\]|(\S+) \[\])</regex>
+  <order>db.client</order>
+</decoder>
+
+<decoder name="reefed-mysql-slow-fields">
+  <parent>reefed-mysql-slow</parent>
+  <regex type="pcre2"># User@Host: \S* @ \S* ?\[(\d{1,3}(?:\.\d{1,3}){3}|[0-9A-Fa-f]{0,4}:[0-9A-Fa-f:.]+)\]</regex>
+  <order>srcip</order>
+</decoder>
+
+<decoder name="reefed-mysql-slow-fields">
+  <parent>reefed-mysql-slow</parent>
+  <regex type="pcre2">(?|# User@Host: .*?\bId:\s+(\d+)|# Thread_id: (\d+))</regex>
+  <order>db.connection</order>
+</decoder>
+
+<decoder name="reefed-mysql-slow-fields">
+  <parent>reefed-mysql-slow</parent>
+  <regex type="pcre2"># Query_time: ([\d.]+)\s+Lock_time: [\d.]+\s+Rows_sent: (\d+)\s+Rows_examined: (\d+)</regex>
+  <order>db.query_time,db.rows_sent,db.rows_examined</order>
+</decoder>
+
+<decoder name="reefed-mysql-slow-fields">
+  <parent>reefed-mysql-slow</parent>
+  <regex type="pcre2"> Errno: (\d+) </regex>
+  <order>db.errno</order>
+</decoder>
+
+<decoder name="reefed-mysql-slow-fields">
+  <parent>reefed-mysql-slow</parent>
+  <regex type="pcre2"> Bytes_sent: (\d+)</regex>
+  <order>db.bytes_sent</order>
+</decoder>
+
+<decoder name="reefed-mysql-slow-fields">
+  <parent>reefed-mysql-slow</parent>
+  <regex type="pcre2">(?| use ([^;\s]+); SET timestamp=\d+;|# Thread_id: \d+\s+Schema: (\S+))</regex>
+  <order>db.name</order>
+</decoder>
+
+<decoder name="reefed-mysql-slow-fields">
+  <parent>reefed-mysql-slow</parent>
+  <regex type="pcre2"> SET timestamp=\d+; (?!# administrator command: )(.+?);?\s*$</regex>
+  <order>db.query</order>
+</decoder>
+
+<decoder name="reefed-mysql-slow-fields">
+  <parent>reefed-mysql-slow</parent>
+  <regex type="pcre2"> SET timestamp=\d+; # administrator command: ([^;]+);</regex>
+  <order>db.command</order>
+</decoder>
+
+<!-- General query log -->
+<decoder name="reefed-mysql-general">
+  <prematch type="pcre2">(?:^|\s\d+ )(?:Connect|Query|Quit|Init DB|Execute|Prepare|Close stmt|Reset stmt|Field List|Change user|Refresh|Statistics|Processlist|Kill|Debug|Ping|Binlog Dump|Binlog Dump GTID|Table Dump|Register Replica|Register Slave|Set option|Fetch|Daemon|Shutdown|Long Data|Reset Connection)\t</prematch>
+</decoder>
+
+<decoder name="reefed-mysql-general-fields">
+  <parent>reefed-mysql-general</parent>
+  <regex type="pcre2">(?:^|\s\d+ )(Connect|Query|Quit|Init DB|Execute|Prepare|Close stmt|Reset stmt|Field List|Change user|Refresh|Statistics|Processlist|Kill|Debug|Ping|Binlog Dump|Binlog Dump GTID|Table Dump|Register Replica|Register Slave|Set option|Fetch|Daemon|Shutdown|Long Data|Reset Connection)\t(.*)$</regex>
+  <order>db.command,db.message</order>
+</decoder>
+
+<decoder name="reefed-mysql-general-fields">
+  <parent>reefed-mysql-general</parent>
+  <regex type="pcre2">(?:^|\s\d+ )(?:Query|Execute|Prepare)\t(.+)$</regex>
+  <order>db.query</order>
+</decoder>
+
+<decoder name="reefed-mysql-general-fields">
+  <parent>reefed-mysql-general</parent>
+  <regex type="pcre2">(?:^|\s\d+ )Connect\t(?!Access denied )([^@\s]*)@(\S+) on (\S*)</regex>
+  <order>dstuser,db.client,db.name</order>
+</decoder>
+
+<decoder name="reefed-mysql-general-fields">
+  <parent>reefed-mysql-general</parent>
+  <regex type="pcre2">(?:^|\s\d+ )Connect\tAccess denied for user '([^']*)'@'([^']*)'</regex>
+  <order>dstuser,db.client</order>
+</decoder>
+
+<decoder name="reefed-mysql-general-fields">
+  <parent>reefed-mysql-general</parent>
+  <regex type="pcre2">(?:^|\s\d+ )Connect\t(?:[^@\s]*@|Access denied for user '[^']*'@')(\d{1,3}(?:\.\d{1,3}){3}|[0-9A-Fa-f]{0,4}:[0-9A-Fa-f:.]+)[\s']</regex>
+  <order>srcip</order>
+</decoder>
+
+<decoder name="reefed-mysql-general-fields">
+  <parent>reefed-mysql-general</parent>
+  <regex type="pcre2">(?:^|\s\d+ )Init DB\t(\S+)</regex>
+  <order>db.name</order>
+</decoder>
+
+<!-- Cabeçalho gravado quando o general log é (re)aberto -->
+<decoder name="reefed-mysql-general-header">
+  <prematch type="pcre2">^\S*mysqld\S*, Version: \S+ .*started with:</prematch>
+  <regex type="pcre2">Version: (\S+)</regex>
+  <order>db.version</order>
+</decoder>

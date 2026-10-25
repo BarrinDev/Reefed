@@ -1,0 +1,118 @@
+# Gerado a partir de logs reais do PostgreSQL 17, MySQL 8.4 e MariaDB 11.4 (e variações).
+# Formato descrito em tests/run_tests.py.
+name: Usuários e privilégios do banco
+cases:
+- name: Usuário criado por administrador
+  when: in_hours
+  log: '2026-10-22 14:05:10.120 UTC [4242] user=postgres db=loja client=10.20.0.15 app=psql LOG:  statement: CREATE USER relatorio WITH PASSWORD ''x'';'
+  expect:
+    rule: 110500
+    level: 8
+    mitre:
+    - T1136
+    groups:
+    - reefed_privilege
+- name: Usuário criado fora do horário
+  when: off_hours
+  log: '2026-10-22 14:05:10.120 UTC [4242] user=postgres db=loja client=10.20.0.15 app=psql LOG:  statement: CREATE USER relatorio WITH PASSWORD ''x'';'
+  expect:
+    rule: 110906
+    level: 11
+- name: Role criada com SUPERUSER
+  when: in_hours
+  log: '2026-10-22 13:10:37.871 UTC [103] user=postgres db=postgres client=172.18.0.4 app=psql LOG:  statement: CREATE ROLE hacker WITH LOGIN SUPERUSER PASSWORD ''Hacker.123'';'
+  expect:
+    rule: 110501
+    level: 12
+    mitre:
+    - T1136
+    - T1098
+- name: Role com SUPERUSER fora do horário
+  when: off_hours
+  log: '2026-10-22 13:10:37.871 UTC [103] user=postgres db=postgres client=172.18.0.4 app=psql LOG:  statement: CREATE ROLE hacker WITH LOGIN SUPERUSER PASSWORD ''Hacker.123'';'
+  expect:
+    rule: 110907
+    level: 13
+- name: ALTER ROLE ... CREATEROLE
+  when: in_hours
+  log: '2026-10-22 13:10:37.879 UTC [103] user=postgres db=postgres client=172.18.0.4 app=psql LOG:  statement: ALTER ROLE hacker CREATEROLE;'
+  expect:
+    rule: 110501
+- name: 'MySQL: usuário que entra de qualquer host'
+  when: in_hours
+  log: '# Time: 2026-10-22T13:36:29.799771Z # User@Host: root[root] @  [172.18.0.5]  Id:    24 # Query_time: 0.009583  Lock_time: 0.000006 Rows_sent: 0  Rows_examined: 0 Thread_id: 24 Errno: 0 Killed: 0 Bytes_received: 58 Bytes_sent: 11 Read_first: 0 Read_last: 0 Read_key: 12 Read_next: 0 Read_prev: 0 Read_rnd: 0 Read_rnd_next: 0 Sort_merge_passes: 0 Sort_range_count: 0 Sort_rows: 0 Sort_scan_count: 0 Created_tmp_disk_tables: 0 Created_tmp_tables: 0 Start: 2026-10-22T13:36:29.790188Z End: 2026-10-22T13:36:29.799771Z SET timestamp=1792676189; CREATE USER ''hacker''@''%'' IDENTIFIED BY <secret>;'
+  expect:
+    rule: 110502
+    level: 10
+- name: 'MySQL: GRANT ALL ON *.* WITH GRANT OPTION'
+  when: in_hours
+  log: '# Time: 2026-10-22T13:36:29.803186Z # User@Host: root[root] @  [172.18.0.5]  Id:    24 # Query_time: 0.003201  Lock_time: 0.000005 Rows_sent: 0  Rows_examined: 0 Thread_id: 24 Errno: 0 Killed: 0 Bytes_received: 68 Bytes_sent: 11 Read_first: 0 Read_last: 0 Read_key: 41 Read_next: 0 Read_prev: 0 Read_rnd: 0 Read_rnd_next: 0 Sort_merge_passes: 0 Sort_range_count: 0 Sort_rows: 0 Sort_scan_count: 0 Created_tmp_disk_tables: 0 Created_tmp_tables: 0 Start: 2026-10-22T13:36:29.799985Z End: 2026-10-22T13:36:29.803186Z SET timestamp=1792676189; GRANT ALL PRIVILEGES ON *.* TO ''hacker''@''%'' WITH GRANT OPTION;'
+  expect:
+    rule: 110503
+    level: 12
+- name: 'MySQL: GRANT FILE ON *.*'
+  when: in_hours
+  log: '# Time: 2026-10-22T13:36:29.804854Z # User@Host: root[root] @  [172.18.0.5]  Id:    24 # Query_time: 0.001478  Lock_time: 0.000004 Rows_sent: 0  Rows_examined: 0 Thread_id: 24 Errno: 0 Killed: 0 Bytes_received: 40 Bytes_sent: 11 Read_first: 0 Read_last: 0 Read_key: 1 Read_next: 0 Read_prev: 0 Read_rnd: 0 Read_rnd_next: 0 Sort_merge_passes: 0 Sort_range_count: 0 Sort_rows: 0 Sort_scan_count: 0 Created_tmp_disk_tables: 0 Created_tmp_tables: 0 Start: 2026-10-22T13:36:29.803376Z End: 2026-10-22T13:36:29.804854Z SET timestamp=1792676189; GRANT FILE ON *.* TO ''hacker''@''%'';'
+  expect:
+    rule: 110503
+- name: 'PostgreSQL: GRANT pg_read_all_data'
+  when: in_hours
+  log: '2026-10-22 13:10:37.880 UTC [103] user=postgres db=postgres client=172.18.0.4 app=psql LOG:  statement: GRANT pg_read_all_data TO hacker;'
+  expect:
+    rule: 110503
+- name: GRANT simples
+  when: in_hours
+  log: '2026-10-22 14:05:10.120 UTC [4242] user=postgres db=loja client=10.20.0.15 app=psql LOG:  statement: GRANT SELECT ON clientes TO relatorio;'
+  expect:
+    rule: 110504
+    level: 5
+- name: REVOKE
+  log: '2026-10-22 14:05:10.120 UTC [4242] user=postgres db=loja client=10.20.0.15 app=psql LOG:  statement: REVOKE INSERT ON clientes FROM relatorio;'
+  expect:
+    rule: 110505
+    level: 5
+- name: Troca de senha (PostgreSQL)
+  when: in_hours
+  log: '2026-10-22 14:05:10.120 UTC [4242] user=postgres db=loja client=10.20.0.15 app=psql LOG:  statement: ALTER USER relatorio WITH PASSWORD ''nova'';'
+  expect:
+    rule: 110506
+    level: 6
+- name: Troca de senha (MySQL, senha mascarada)
+  when: in_hours
+  log: '# Time: 2026-10-22T14:05:10.654784Z # User@Host: root[root] @  [10.20.0.16]  Id:    31 # Query_time: 0.000200  Lock_time: 0.000000 Rows_sent: 0  Rows_examined: 0 Thread_id: 31 Errno: 0 Killed: 0 Bytes_received: 43 Bytes_sent: 49 Read_first: 0 Read_last: 0 Read_key: 0 Read_next: 0 Read_prev: 0 Read_rnd: 0 Read_rnd_next: 0 Sort_merge_passes: 0 Sort_range_count: 0 Sort_rows: 0 Sort_scan_count: 0 Created_tmp_disk_tables: 0 Created_tmp_tables: 0 Start: 2026-10-22T14:05:10.654584Z End: 2026-10-22T14:05:10.654784Z SET timestamp=1792680310; ALTER USER ''app''@''%'' IDENTIFIED BY <secret>;'
+  expect:
+    rule: 110506
+- name: Usuário removido
+  when: in_hours
+  log: '# Time: 2026-10-22T13:36:29.815486Z # User@Host: root[root] @  [172.18.0.5]  Id:    24 # Query_time: 0.003408  Lock_time: 0.000012 Rows_sent: 0  Rows_examined: 0 Thread_id: 24 Errno: 0 Killed: 0 Bytes_received: 29 Bytes_sent: 11 Read_first: 2 Read_last: 0 Read_key: 53 Read_next: 1 Read_prev: 0 Read_rnd: 0 Read_rnd_next: 2 Sort_merge_passes: 0 Sort_range_count: 0 Sort_rows: 0 Sort_scan_count: 0 Created_tmp_disk_tables: 0 Created_tmp_tables: 0 Start: 2026-10-22T13:36:29.812078Z End: 2026-10-22T13:36:29.815486Z SET timestamp=1792676189; DROP USER ''hacker''@''%'';'
+  expect:
+    rule: 110507
+    level: 7
+    mitre:
+    - T1531
+- name: Tabela de usuários alterada direto
+  when: in_hours
+  log: '# Time: 2026-10-22T14:05:10.654784Z # User@Host: root[root] @  [10.20.0.16]  Id:    31 # Query_time: 0.000200  Lock_time: 0.000000 Rows_sent: 0  Rows_examined: 0 Thread_id: 31 Errno: 0 Killed: 0 Bytes_received: 43 Bytes_sent: 49 Read_first: 0 Read_last: 0 Read_key: 0 Read_next: 0 Read_prev: 0 Read_rnd: 0 Read_rnd_next: 0 Sort_merge_passes: 0 Sort_range_count: 0 Sort_rows: 0 Sort_scan_count: 0 Created_tmp_disk_tables: 0 Created_tmp_tables: 0 Start: 2026-10-22T14:05:10.654584Z End: 2026-10-22T14:05:10.654784Z SET timestamp=1792680310; UPDATE mysql.user SET plugin = ''mysql_native_password'' WHERE user = ''root'';'
+  expect:
+    rule: 110508
+    level: 12
+    mitre:
+    - T1098
+    - T1556
+- name: Usuário comum criando usuário
+  log: '2026-10-22 14:05:10.120 UTC [4242] user=app db=loja client=10.20.0.15 app=psql LOG:  statement: CREATE USER fantasma;'
+  expect:
+    rule: 110520
+    level: 12
+- name: Usuário comum dando GRANT
+  log: '2026-10-22 14:05:10.120 UTC [4242] user=app db=loja client=10.20.0.15 app=psql LOG:  statement: GRANT SELECT ON clientes TO fantasma;'
+  expect:
+    rule: 110520
+- name: Usuário comum criando superusuário
+  log: '2026-10-22 14:05:10.120 UTC [4242] user=app db=loja client=10.20.0.15 app=psql LOG:  statement: CREATE ROLE fantasma SUPERUSER LOGIN;'
+  expect:
+    rule: 110521
+    level: 14
+    mitre:
+    - T1098
+    - T1068

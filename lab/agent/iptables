@@ -1,0 +1,10 @@
+#!/bin/bash
+# Reefed lab - iptables de mentira. Os containers dos bancos não têm o módulo
+# do kernel, então o firewall-drop do Active Response rodaria iptables de
+# verdade e falharia. Este stub aceita os mesmos argumentos e registra o que
+# teria feito em /var/log/reefed-lab/iptables.log, para o validate.py conferir
+# que o Active Response realmente mandou bloquear o IP.
+LOG=/var/log/reefed-lab/iptables.log
+mkdir -p "$(dirname "$LOG")"
+printf '%s iptables %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" >> "$LOG"
+exit 0

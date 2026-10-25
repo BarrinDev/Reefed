@@ -1,0 +1,155 @@
+# Gerado a partir de logs reais do PostgreSQL 17, MySQL 8.4 e MariaDB 11.4 (e variações).
+# Formato descrito em tests/run_tests.py.
+name: DROP, TRUNCATE, DELETE/UPDATE sem WHERE e ALTER
+cases:
+- name: DROP DATABASE por administrador
+  when: in_hours
+  log: '2026-10-22 13:10:39.990 UTC [103] user=postgres db=postgres client=172.18.0.4 app=psql LOG:  statement: DROP DATABASE loja;'
+  expect:
+    rule: 110400
+    level: 12
+    mitre:
+    - T1485
+    groups:
+    - reefed_destructive
+- name: DROP DATABASE fora do horário
+  when: off_hours
+  log: '2026-10-22 13:10:39.990 UTC [103] user=postgres db=postgres client=172.18.0.4 app=psql LOG:  statement: DROP DATABASE loja;'
+  expect:
+    rule: 110905
+    level: 14
+- name: DROP DATABASE por quem não é administrador
+  log: '2026-10-22 14:05:10.120 UTC [4242] user=app db=loja client=10.20.0.15 app=psql LOG:  statement: DROP DATABASE loja;'
+  expect:
+    rule: 110420
+    level: 14
+- name: DROP SCHEMA
+  when: in_hours
+  log: '2026-10-22 14:05:10.120 UTC [4242] user=postgres db=loja client=10.20.0.15 app=psql LOG:  statement: DROP SCHEMA vendas CASCADE;'
+  expect:
+    rule: 110400
+- name: DROP TABLE por administrador
+  when: in_hours
+  log: '2026-10-22 13:10:39.900 UTC [103] user=postgres db=postgres client=172.18.0.4 app=psql LOG:  statement: DROP TABLE clientes;'
+  expect:
+    rule: 110401
+    level: 8
+- name: DROP TABLE fora do horário
+  when: off_hours
+  log: '2026-10-22 13:10:39.900 UTC [103] user=postgres db=postgres client=172.18.0.4 app=psql LOG:  statement: DROP TABLE clientes;'
+  expect:
+    rule: 110904
+    level: 12
+- name: DROP TABLE por quem não é administrador
+  log: '2026-10-22 14:05:10.120 UTC [4242] user=app db=loja client=10.20.0.15 app=psql LOG:  statement: DROP TABLE clientes;'
+  expect:
+    rule: 110421
+    level: 12
+- name: 'MySQL: DROP TABLE'
+  when: in_hours
+  log: '# Time: 2026-10-22T13:36:29.811911Z # User@Host: root[root] @  [172.18.0.5]  Id:    24 # Query_time: 0.006659  Lock_time: 0.000015 Rows_sent: 0  Rows_examined: 0 Thread_id: 24 Errno: 0 Killed: 0 Bytes_received: 26 Bytes_sent: 11 Read_first: 0 Read_last: 0 Read_key: 19 Read_next: 16 Read_prev: 0 Read_rnd: 0 Read_rnd_next: 0 Sort_merge_passes: 0 Sort_range_count: 0 Sort_rows: 0 Sort_scan_count: 0 Created_tmp_disk_tables: 0 Created_tmp_tables: 0 Start: 2026-10-22T13:36:29.805252Z End: 2026-10-22T13:36:29.811911Z SET timestamp=1792676189; DROP TABLE clientes;'
+  expect:
+    rule: 110401
+- name: 'MariaDB: DROP TABLE por usuário comum'
+  log: 20261022 14:05:10,dbserver,app,10.20.0.17,9,28,QUERY,loja,'DROP TABLE clientes',0
+  expect:
+    rule: 110421
+- name: TRUNCATE por administrador
+  when: in_hours
+  log: '2026-10-22 13:10:37.867 UTC [103] user=postgres db=postgres client=172.18.0.4 app=psql LOG:  statement: TRUNCATE clientes;'
+  expect:
+    rule: 110402
+    level: 8
+- name: TRUNCATE por quem não é administrador
+  log: '# Time: 2026-10-22T14:05:10.654784Z # User@Host: app[app] @  [10.20.0.16]  Id:    31 # Query_time: 0.000200  Lock_time: 0.000000 Rows_sent: 0  Rows_examined: 0 Thread_id: 31 Errno: 0 Killed: 0 Bytes_received: 43 Bytes_sent: 49 Read_first: 0 Read_last: 0 Read_key: 0 Read_next: 0 Read_prev: 0 Read_rnd: 0 Read_rnd_next: 0 Sort_merge_passes: 0 Sort_range_count: 0 Sort_rows: 0 Sort_scan_count: 0 Created_tmp_disk_tables: 0 Created_tmp_tables: 0 Start: 2026-10-22T14:05:10.654584Z End: 2026-10-22T14:05:10.654784Z SET timestamp=1792680310; TRUNCATE TABLE pedidos;'
+  expect:
+    rule: 110422
+    level: 12
+- name: Função TRUNCATE() do MySQL não é comando destrutivo
+  log: '# Time: 2026-10-22T14:05:10.654784Z # User@Host: app[app] @  [10.20.0.16]  Id:    31 # Query_time: 0.000200  Lock_time: 0.000000 Rows_sent: 0  Rows_examined: 0 Thread_id: 31 Errno: 0 Killed: 0 Bytes_received: 43 Bytes_sent: 49 Read_first: 0 Read_last: 0 Read_key: 0 Read_next: 0 Read_prev: 0 Read_rnd: 0 Read_rnd_next: 0 Sort_merge_passes: 0 Sort_range_count: 0 Sort_rows: 0 Sort_scan_count: 0 Created_tmp_disk_tables: 0 Created_tmp_tables: 0 Start: 2026-10-22T14:05:10.654584Z End: 2026-10-22T14:05:10.654784Z SET timestamp=1792680310; SELECT TRUNCATE(10.567, 2);'
+  expect:
+    no_alert: true
+- name: DELETE sem WHERE por administrador
+  when: in_hours
+  log: '2026-10-22 13:10:37.866 UTC [103] user=postgres db=postgres client=172.18.0.4 app=psql LOG:  statement: DELETE FROM clientes;'
+  expect:
+    rule: 110403
+    level: 9
+- name: DELETE sem WHERE por quem não é administrador
+  log: '2026-10-22 14:05:10.120 UTC [4242] user=app db=loja client=10.20.0.15 app=psql LOG:  statement: DELETE FROM clientes;'
+  expect:
+    rule: 110423
+    level: 12
+- name: DELETE com WHERE 1=1 também apaga tudo
+  when: in_hours
+  log: '2026-10-22 14:05:10.120 UTC [4242] user=postgres db=loja client=10.20.0.15 app=psql LOG:  statement: DELETE FROM clientes WHERE 1=1;'
+  expect:
+    rule: 110403
+- name: DELETE com WHERE normal não alerta
+  log: '2026-10-22 14:05:10.120 UTC [4242] user=app db=loja client=10.20.0.15 app=psql LOG:  statement: DELETE FROM carrinho WHERE id = 5;'
+  expect:
+    no_alert: true
+- name: UPDATE sem WHERE por administrador
+  when: in_hours
+  log: '2026-10-22 13:10:37.865 UTC [103] user=postgres db=postgres client=172.18.0.4 app=psql LOG:  statement: UPDATE clientes SET cpf = ''000'';'
+  expect:
+    rule: 110404
+    level: 7
+    mitre:
+    - T1565.001
+- name: UPDATE sem WHERE por quem não é administrador
+  when: in_hours
+  log: '2026-10-22 14:05:10.120 UTC [4242] user=app db=loja client=10.20.0.15 app=psql LOG:  statement: UPDATE clientes SET cpf = ''000'';'
+  expect:
+    rule: 110424
+    level: 10
+- name: UPDATE sem WHERE fora do horário
+  when: off_hours
+  log: '2026-10-22 14:05:10.120 UTC [4242] user=app db=loja client=10.20.0.15 app=psql LOG:  statement: UPDATE clientes SET cpf = ''000'';'
+  expect:
+    rule: 110904
+    level: 12
+- name: UPDATE com WHERE não alerta
+  log: '2026-10-22 14:05:10.120 UTC [4242] user=app db=loja client=10.20.0.15 app=psql LOG:  statement: UPDATE clientes SET cpf = ''000'' WHERE id = 3;'
+  expect:
+    no_alert: true
+- name: ALTER TABLE removendo coluna (administrador)
+  when: in_hours
+  log: '2026-10-22 14:05:10.120 UTC [4242] user=postgres db=loja client=10.20.0.15 app=psql LOG:  statement: ALTER TABLE clientes DROP COLUMN cpf;'
+  expect:
+    rule: 110405
+    level: 7
+- name: ALTER TABLE removendo coluna (usuário comum)
+  when: in_hours
+  log: '2026-10-22 14:05:10.120 UTC [4242] user=app db=loja client=10.20.0.15 app=psql LOG:  statement: ALTER TABLE clientes DROP COLUMN cpf;'
+  expect:
+    rule: 110425
+    level: 10
+- name: DROP de outro objeto (administrador)
+  log: '2026-10-22 14:05:10.120 UTC [4242] user=postgres db=loja client=10.20.0.15 app=psql LOG:  statement: DROP VIEW relatorio_vendas;'
+  expect:
+    rule: 110406
+    level: 5
+- name: DROP de outro objeto (usuário comum)
+  log: '2026-10-22 14:05:10.120 UTC [4242] user=app db=loja client=10.20.0.15 app=psql LOG:  statement: DROP FUNCTION calcula_frete(int);'
+  expect:
+    rule: 110426
+    level: 8
+- name: DDL comum (administrador)
+  log: '2026-10-22 13:10:15.270 UTC [81] user=postgres db=postgres client=172.18.0.4 app=psql LOG:  statement: CREATE TABLE clientes (id serial PRIMARY KEY, nome text, cpf text);'
+  expect:
+    rule: 110407
+    level: 3
+- name: DDL comum (usuário comum)
+  log: '2026-10-22 14:05:10.120 UTC [4242] user=app db=loja client=10.20.0.15 app=psql LOG:  statement: CREATE INDEX idx_nome ON clientes (nome);'
+  expect:
+    rule: 110427
+    level: 5
+- name: Tabela temporária não alerta
+  log: '2026-10-22 14:05:10.120 UTC [4242] user=app db=loja client=10.20.0.15 app=psql LOG:  statement: CREATE TEMPORARY TABLE tmp_calc (id int);'
+  expect:
+    no_alert: true
+- name: Texto com "drop table" dentro de uma string não alerta
+  log: '2026-10-22 14:05:10.120 UTC [4242] user=app db=loja client=10.20.0.15 app=psql LOG:  statement: SELECT ''drop table x'' AS dica;'
+  expect:
+    no_alert: true

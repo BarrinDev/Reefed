@@ -1,0 +1,172 @@
+# Gerado a partir de logs reais do PostgreSQL 17, MySQL 8.4 e MariaDB 11.4 (e variações).
+# Formato descrito em tests/run_tests.py.
+name: Execução de comandos, leitura de arquivos e adulteração de logs
+cases:
+- name: COPY ... TO PROGRAM
+  log: '2026-10-22 13:10:37.857 UTC [103] user=postgres db=postgres client=172.18.0.4 app=psql LOG:  statement: COPY (SELECT 1) TO PROGRAM ''cat > /dev/null'';'
+  expect:
+    rule: 110700
+    level: 13
+    mitre:
+    - T1059
+    - T1059.004
+- name: COPY ... FROM PROGRAM
+  log: '2026-10-22 14:05:10.120 UTC [4242] user=postgres db=loja client=10.20.0.15 app=psql LOG:  statement: COPY saida FROM PROGRAM ''id'';'
+  expect:
+    rule: 110700
+- name: Função em plpython3u
+  log: '2026-10-22 14:05:10.120 UTC [4242] user=postgres db=loja client=10.20.0.15 app=psql LOG:  statement: CREATE FUNCTION sh(cmd text) RETURNS text AS $$ import os; return os.popen(cmd).read() $$ LANGUAGE plpython3u;'
+  expect:
+    rule: 110701
+    level: 13
+    mitre:
+    - T1505.001
+- name: Função com LANGUAGE antes do corpo
+  log: '2026-10-22 14:05:10.120 UTC [4242] user=postgres db=loja client=10.20.0.15 app=psql LOG:  statement: CREATE OR REPLACE FUNCTION x() RETURNS void LANGUAGE c AS ''/tmp/evil.so'', ''run'';'
+  expect:
+    rule: 110701
+- name: Função SQL comum é só DDL
+  log: '2026-10-22 14:05:10.120 UTC [4242] user=postgres db=loja client=10.20.0.15 app=psql LOG:  statement: CREATE FUNCTION soma(a int, b int) RETURNS int AS $$ SELECT a + b; $$ LANGUAGE sql;'
+  expect:
+    rule: 110407
+- name: 'MySQL: UDF com SONAME'
+  log: '# Time: 2026-10-22T14:05:10.654784Z # User@Host: root[root] @  [10.20.0.16]  Id:    31 # Query_time: 0.000200  Lock_time: 0.000000 Rows_sent: 0  Rows_examined: 0 Thread_id: 31 Errno: 0 Killed: 0 Bytes_received: 43 Bytes_sent: 49 Read_first: 0 Read_last: 0 Read_key: 0 Read_next: 0 Read_prev: 0 Read_rnd: 0 Read_rnd_next: 0 Sort_merge_passes: 0 Sort_range_count: 0 Sort_rows: 0 Sort_scan_count: 0 Created_tmp_disk_tables: 0 Created_tmp_tables: 0 Start: 2026-10-22T14:05:10.654584Z End: 2026-10-22T14:05:10.654784Z SET timestamp=1792680310; CREATE FUNCTION sys_exec RETURNS int SONAME ''lib_mysqludf_sys.so'';'
+  expect:
+    rule: 110701
+- name: Extensão perigosa
+  log: '2026-10-22 14:05:10.120 UTC [4242] user=postgres db=loja client=10.20.0.15 app=psql LOG:  statement: CREATE EXTENSION plpython3u;'
+  expect:
+    rule: 110702
+    level: 10
+- name: 'MySQL: plugin instalado'
+  log: '# Time: 2026-10-22T14:05:10.654784Z # User@Host: root[root] @  [10.20.0.16]  Id:    31 # Query_time: 0.000200  Lock_time: 0.000000 Rows_sent: 0  Rows_examined: 0 Thread_id: 31 Errno: 0 Killed: 0 Bytes_received: 43 Bytes_sent: 49 Read_first: 0 Read_last: 0 Read_key: 0 Read_next: 0 Read_prev: 0 Read_rnd: 0 Read_rnd_next: 0 Sort_merge_passes: 0 Sort_range_count: 0 Sort_rows: 0 Sort_scan_count: 0 Created_tmp_disk_tables: 0 Created_tmp_tables: 0 Start: 2026-10-22T14:05:10.654584Z End: 2026-10-22T14:05:10.654784Z SET timestamp=1792680310; INSTALL PLUGIN server_audit SONAME ''server_audit.so'';'
+  expect:
+    rule: 110703
+    level: 10
+- name: Trigger criada por administrador
+  log: '2026-10-22 14:05:10.120 UTC [4242] user=postgres db=loja client=10.20.0.15 app=psql LOG:  statement: CREATE TRIGGER t_audit AFTER INSERT ON pedidos FOR EACH ROW EXECUTE FUNCTION registra();'
+  expect:
+    rule: 110704
+    level: 5
+- name: Evento agendado criado por usuário comum
+  log: '# Time: 2026-10-22T14:05:10.654784Z # User@Host: app[app] @  [10.20.0.16]  Id:    31 # Query_time: 0.000200  Lock_time: 0.000000 Rows_sent: 0  Rows_examined: 0 Thread_id: 31 Errno: 0 Killed: 0 Bytes_received: 43 Bytes_sent: 49 Read_first: 0 Read_last: 0 Read_key: 0 Read_next: 0 Read_prev: 0 Read_rnd: 0 Read_rnd_next: 0 Sort_merge_passes: 0 Sort_range_count: 0 Sort_rows: 0 Sort_scan_count: 0 Created_tmp_disk_tables: 0 Created_tmp_tables: 0 Start: 2026-10-22T14:05:10.654584Z End: 2026-10-22T14:05:10.654784Z SET timestamp=1792680310; CREATE EVENT limpa ON SCHEDULE EVERY 1 HOUR DO DELETE FROM logs;'
+  expect:
+    rule: 110705
+    level: 9
+- name: pg_read_file
+  log: '2026-10-22 13:10:39.898 UTC [103] user=postgres db=postgres client=172.18.0.4 app=psql LOG:  statement: SELECT pg_read_file(''/etc/passwd'');'
+  expect:
+    rule: 110710
+    level: 12
+    mitre:
+    - T1005
+    - T1083
+- name: COPY FROM arquivo do servidor
+  log: '2026-10-22 14:05:10.120 UTC [4242] user=postgres db=loja client=10.20.0.15 app=psql LOG:  statement: COPY senhas FROM ''/etc/passwd'';'
+  expect:
+    rule: 110710
+- name: 'MySQL: LOAD_FILE'
+  log: '# Time: 2026-10-22T13:36:29.759143Z # User@Host: root[root] @  [172.18.0.5]  Id:    24 # Query_time: 0.000264  Lock_time: 0.000000 Rows_sent: 1  Rows_examined: 1 Thread_id: 24 Errno: 0 Killed: 0 Bytes_received: 38 Bytes_sent: 71 Read_first: 0 Read_last: 0 Read_key: 0 Read_next: 0 Read_prev: 0 Read_rnd: 0 Read_rnd_next: 0 Sort_merge_passes: 0 Sort_range_count: 0 Sort_rows: 0 Sort_scan_count: 0 Created_tmp_disk_tables: 0 Created_tmp_tables: 0 Start: 2026-10-22T13:36:29.758879Z End: 2026-10-22T13:36:29.759143Z SET timestamp=1792676189; SELECT LOAD_FILE(''/etc/passwd'');'
+  expect:
+    rule: 110711
+    level: 12
+- name: 'MySQL: LOAD DATA INFILE do servidor'
+  log: '# Time: 2026-10-22T14:05:10.654784Z # User@Host: root[root] @  [10.20.0.16]  Id:    31 # Query_time: 0.000200  Lock_time: 0.000000 Rows_sent: 0  Rows_examined: 0 Thread_id: 31 Errno: 0 Killed: 0 Bytes_received: 43 Bytes_sent: 49 Read_first: 0 Read_last: 0 Read_key: 0 Read_next: 0 Read_prev: 0 Read_rnd: 0 Read_rnd_next: 0 Sort_merge_passes: 0 Sort_range_count: 0 Sort_rows: 0 Sort_scan_count: 0 Created_tmp_disk_tables: 0 Created_tmp_tables: 0 Start: 2026-10-22T14:05:10.654584Z End: 2026-10-22T14:05:10.654784Z SET timestamp=1792680310; LOAD DATA INFILE ''/etc/passwd'' INTO TABLE t;'
+  expect:
+    rule: 110711
+- name: 'PostgreSQL: leitura de pg_shadow por administrador'
+  log: '2026-10-22 14:05:10.120 UTC [4242] user=postgres db=loja client=10.20.0.15 app=psql LOG:  statement: SELECT usename, passwd FROM pg_shadow;'
+  expect:
+    rule: 110715
+    level: 10
+    mitre:
+    - T1555
+- name: 'MySQL: leitura dos hashes por usuário comum'
+  log: '# Time: 2026-10-22T14:05:10.654784Z # User@Host: app[app] @  [10.20.0.16]  Id:    31 # Query_time: 0.000200  Lock_time: 0.000000 Rows_sent: 0  Rows_examined: 0 Thread_id: 31 Errno: 0 Killed: 0 Bytes_received: 43 Bytes_sent: 49 Read_first: 0 Read_last: 0 Read_key: 0 Read_next: 0 Read_prev: 0 Read_rnd: 0 Read_rnd_next: 0 Sort_merge_passes: 0 Sort_range_count: 0 Sort_rows: 0 Sort_scan_count: 0 Created_tmp_disk_tables: 0 Created_tmp_tables: 0 Start: 2026-10-22T14:05:10.654584Z End: 2026-10-22T14:05:10.654784Z SET timestamp=1792680310; SELECT user, authentication_string FROM mysql.user;'
+  expect:
+    rule: 110716
+    level: 12
+- name: Enumeração de privilégios por usuário comum
+  log: '2026-10-22 14:05:10.120 UTC [4242] user=app db=loja client=10.20.0.15 app=psql LOG:  statement: SELECT * FROM information_schema.role_table_grants;'
+  expect:
+    rule: 110717
+    level: 5
+    mitre:
+    - T1087
+    - T1069
+- name: SHUTDOWN
+  log: '# Time: 2026-10-22T14:05:10.654784Z # User@Host: root[root] @  [10.20.0.16]  Id:    31 # Query_time: 0.000200  Lock_time: 0.000000 Rows_sent: 0  Rows_examined: 0 Thread_id: 31 Errno: 0 Killed: 0 Bytes_received: 43 Bytes_sent: 49 Read_first: 0 Read_last: 0 Read_key: 0 Read_next: 0 Read_prev: 0 Read_rnd: 0 Read_rnd_next: 0 Sort_merge_passes: 0 Sort_range_count: 0 Sort_rows: 0 Sort_scan_count: 0 Created_tmp_disk_tables: 0 Created_tmp_tables: 0 Start: 2026-10-22T14:05:10.654584Z End: 2026-10-22T14:05:10.654784Z SET timestamp=1792680310; SHUTDOWN;'
+  expect:
+    rule: 110720
+    level: 10
+    mitre:
+    - T1489
+- name: Sessão de outro usuário encerrada
+  log: '2026-10-22 14:05:10.120 UTC [4242] user=postgres db=loja client=10.20.0.15 app=psql LOG:  statement: SELECT pg_terminate_backend(4321);'
+  expect:
+    rule: 110721
+    level: 6
+- name: 'PostgreSQL: SET log_statement = none'
+  log: '2026-10-22 13:10:37.883 UTC [103] user=postgres db=postgres client=172.18.0.4 app=psql LOG:  statement: SET log_statement = ''none'';'
+  expect:
+    rule: 110730
+    level: 12
+    mitre:
+    - T1562.001
+    groups:
+    - reefed_tamper
+- name: 'PostgreSQL: ALTER SYSTEM SET log_statement'
+  log: '2026-10-22 13:10:37.883 UTC [103] user=postgres db=postgres client=172.18.0.4 app=psql LOG:  statement: ALTER SYSTEM SET log_statement = ''none'';'
+  expect:
+    rule: 110730
+- name: 'PostgreSQL: ALTER SYSTEM RESET log_statement'
+  log: '2026-10-22 13:10:38.891 UTC [103] user=postgres db=postgres client=172.18.0.4 app=psql LOG:  statement: ALTER SYSTEM RESET log_statement;'
+  expect:
+    rule: 110730
+- name: 'MySQL: general_log desligado'
+  log: '# Time: 2026-10-22T13:36:29.992215Z # User@Host: root[root] @  [172.18.0.5]  Id:    27 # Query_time: 0.001746  Lock_time: 0.000000 Rows_sent: 0  Rows_examined: 0 Thread_id: 27 Errno: 0 Killed: 0 Bytes_received: 37 Bytes_sent: 11 Read_first: 0 Read_last: 0 Read_key: 0 Read_next: 0 Read_prev: 0 Read_rnd: 0 Read_rnd_next: 0 Sort_merge_passes: 0 Sort_range_count: 0 Sort_rows: 0 Sort_scan_count: 0 Created_tmp_disk_tables: 0 Created_tmp_tables: 0 Start: 2026-10-22T13:36:29.990469Z End: 2026-10-22T13:36:29.992215Z SET timestamp=1792676189; SET GLOBAL general_log = ''OFF'';'
+  expect:
+    rule: 110730
+- name: 'MariaDB: auditoria desligada'
+  log: 20261022 14:05:10,dbserver,root,10.20.0.17,9,28,QUERY,loja,'SET GLOBAL server_audit_logging = OFF',0
+  expect:
+    rule: 110730
+- name: 'MySQL: general_log ligado é só mudança de configuração'
+  log: '# Time: 2026-10-22T13:36:29.992688Z # User@Host: root[root] @  [172.18.0.5]  Id:    27 # Query_time: 0.000277  Lock_time: 0.000003 Rows_sent: 0  Rows_examined: 0 Thread_id: 27 Errno: 0 Killed: 0 Bytes_received: 36 Bytes_sent: 11 Read_first: 0 Read_last: 0 Read_key: 0 Read_next: 0 Read_prev: 0 Read_rnd: 0 Read_rnd_next: 0 Sort_merge_passes: 0 Sort_range_count: 0 Sort_rows: 0 Sort_scan_count: 0 Created_tmp_disk_tables: 0 Created_tmp_tables: 0 Start: 2026-10-22T13:36:29.992411Z End: 2026-10-22T13:36:29.992688Z SET timestamp=1792676189; SET GLOBAL general_log = ''ON'';'
+  expect:
+    rule: 110734
+    level: 5
+- name: 'MySQL: SQL_LOG_BIN = 0'
+  log: '# Time: 2026-10-22T13:36:29.805091Z # User@Host: root[root] @  [172.18.0.5]  Id:    24 # Query_time: 0.000130  Lock_time: 0.000000 Rows_sent: 0  Rows_examined: 0 Thread_id: 24 Errno: 0 Killed: 0 Bytes_received: 26 Bytes_sent: 11 Read_first: 0 Read_last: 0 Read_key: 0 Read_next: 0 Read_prev: 0 Read_rnd: 0 Read_rnd_next: 0 Sort_merge_passes: 0 Sort_range_count: 0 Sort_rows: 0 Sort_scan_count: 0 Created_tmp_disk_tables: 0 Created_tmp_tables: 0 Start: 2026-10-22T13:36:29.804961Z End: 2026-10-22T13:36:29.805091Z SET timestamp=1792676189; SET SQL_LOG_BIN = 0;'
+  expect:
+    rule: 110731
+    level: 10
+    mitre:
+    - T1070
+- name: 'MySQL: PURGE BINARY LOGS'
+  log: '# Time: 2026-10-22T14:05:10.654784Z # User@Host: root[root] @  [10.20.0.16]  Id:    31 # Query_time: 0.000200  Lock_time: 0.000000 Rows_sent: 0  Rows_examined: 0 Thread_id: 31 Errno: 0 Killed: 0 Bytes_received: 43 Bytes_sent: 49 Read_first: 0 Read_last: 0 Read_key: 0 Read_next: 0 Read_prev: 0 Read_rnd: 0 Read_rnd_next: 0 Sort_merge_passes: 0 Sort_range_count: 0 Sort_rows: 0 Sort_scan_count: 0 Created_tmp_disk_tables: 0 Created_tmp_tables: 0 Start: 2026-10-22T14:05:10.654584Z End: 2026-10-22T14:05:10.654784Z SET timestamp=1792680310; PURGE BINARY LOGS BEFORE ''2026-10-22 00:00:00'';'
+  expect:
+    rule: 110731
+- name: Tabela de auditoria apagada
+  log: '2026-10-22 14:05:10.120 UTC [4242] user=postgres db=loja client=10.20.0.15 app=psql LOG:  statement: TRUNCATE auditoria;'
+  expect:
+    rule: 110732
+    level: 12
+- name: 'MySQL: log geral apagado'
+  log: '# Time: 2026-10-22T14:05:10.654784Z # User@Host: root[root] @  [10.20.0.16]  Id:    31 # Query_time: 0.000200  Lock_time: 0.000000 Rows_sent: 0  Rows_examined: 0 Thread_id: 31 Errno: 0 Killed: 0 Bytes_received: 43 Bytes_sent: 49 Read_first: 0 Read_last: 0 Read_key: 0 Read_next: 0 Read_prev: 0 Read_rnd: 0 Read_rnd_next: 0 Sort_merge_passes: 0 Sort_range_count: 0 Sort_rows: 0 Sort_scan_count: 0 Created_tmp_disk_tables: 0 Created_tmp_tables: 0 Start: 2026-10-22T14:05:10.654584Z End: 2026-10-22T14:05:10.654784Z SET timestamp=1792680310; DELETE FROM mysql.general_log;'
+  expect:
+    rule: 110732
+- name: Trigger de segurança removida
+  log: '2026-10-22 14:05:10.120 UTC [4242] user=postgres db=loja client=10.20.0.15 app=psql LOG:  statement: DROP TRIGGER t_audit ON pedidos;'
+  expect:
+    rule: 110733
+    level: 8
+- name: Triggers desativadas pela réplica
+  log: '2026-10-22 14:05:10.120 UTC [4242] user=postgres db=loja client=10.20.0.15 app=psql LOG:  statement: SET session_replication_role = replica;'
+  expect:
+    rule: 110733
+- name: Parâmetro global alterado
+  log: '2026-10-22 14:05:10.120 UTC [4242] user=postgres db=loja client=10.20.0.15 app=psql LOG:  statement: ALTER SYSTEM SET work_mem = ''64MB'';'
+  expect:
+    rule: 110734
+    level: 5

@@ -1,0 +1,26 @@
+# Segredos e arquivos gerados pelo setup.sh (nunca vão para o git)
+.env
+config/wazuh_indexer/internal_users.yml
+config/wazuh_indexer_ssl_certs/
+
+# Backups (make backup): têm todas as senhas e chaves
+backups/
+
+# Ajustes locais do docker compose (portas, limites da máquina...)
+docker-compose.override.yml
+
+# Laboratório
+lab/.inicio-ataque
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# Editores e sistema
+.vscode/
+.idea/
+.DS_Store
+*.swp

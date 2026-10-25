@@ -1,0 +1,202 @@
+<!--
+  Reefed - execução de comandos, leitura de arquivos, credenciais e adulteração
+  de logs (IDs 110700-110749)
+
+  São as técnicas que usam o banco como ponte para o sistema operacional
+  (COPY TO PROGRAM, UDF, LOAD_FILE), para roubar senhas (pg_authid, mysql.user)
+  ou para apagar rastros (desligar o log, limpar tabelas de auditoria).
+-->
+
+<group name="reefed,database,">
+
+  <!-- Execução de comandos do sistema operacional -->
+  <rule id="110700" level="13">
+    <if_group>reefed_query</if_group>
+    <field name="db.query" type="pcre2">(?i)\bcopy\b[^;]*?\b(?:to|from)\s+program\b</field>
+    <description>Reefed: comando do sistema operacional executado pelo banco (COPY PROGRAM) por $(dstuser) (origem $(db.client)).</description>
+    <mitre>
+      <id>T1059</id>
+      <id>T1059.004</id>
+    </mitre>
+    <group>reefed_exec,attack,pci_dss_10.2.2,pci_dss_11.4,gdpr_IV_35.7.d,hipaa_164.312.b,nist_800_53_AU.14,nist_800_53_SI.4,tsc_CC6.1,tsc_CC6.8,tsc_CC7.2,</group>
+  </rule>
+
+  <!-- Código nativo ou linguagem sem restrição dentro do banco (UDF, plpython3u, C) -->
+  <rule id="110701" level="13">
+    <if_group>reefed_query</if_group>
+    <field name="db.query" type="pcre2">(?i)\bcreate\s+(?:or\s+replace\s+)?(?:aggregate\s+)?function\b(?:.*?\blanguage\s+\\?['"]?(?:plpython3?u|plperlu|pltclu|c)\b|[^;]*\bsoname\b)</field>
+    <description>Reefed: função com código nativo/sem restrição criada no banco por $(dstuser) (origem $(db.client)).</description>
+    <mitre>
+      <id>T1505.001</id>
+      <id>T1059</id>
+    </mitre>
+    <group>reefed_exec,attack,pci_dss_10.2.2,pci_dss_11.4,gdpr_IV_35.7.d,hipaa_164.312.b,nist_800_53_AU.14,nist_800_53_SI.4,tsc_CC6.1,tsc_CC6.8,tsc_CC7.2,</group>
+  </rule>
+
+  <rule id="110702" level="10">
+    <if_group>reefed_query</if_group>
+    <field name="db.query" type="pcre2">(?i)\bcreate\s+extension\s+(?:if\s+not\s+exists\s+)?\\?["']?(?:plpython3?u|plperlu|pltclu|adminpack|file_fdw|dblink|postgres_fdw|pg_cron)\b</field>
+    <description>Reefed: extensão perigosa instalada no PostgreSQL por $(dstuser) (origem $(db.client)).</description>
+    <mitre>
+      <id>T1505.001</id>
+    </mitre>
+    <group>reefed_exec,pci_dss_10.2.2,pci_dss_10.2.7,gdpr_IV_35.7.d,nist_800_53_AU.14,nist_800_53_CM.5,tsc_CC7.2,tsc_CC8.1,</group>
+  </rule>
+
+  <rule id="110703" level="10">
+    <if_group>reefed_query</if_group>
+    <field name="db.query" type="pcre2">(?i)\binstall\s+(?:plugin|component|soname)\b</field>
+    <description>Reefed: plugin/componente instalado no MySQL/MariaDB por $(dstuser) (origem $(db.client)).</description>
+    <mitre>
+      <id>T1505</id>
+    </mitre>
+    <group>reefed_exec,pci_dss_10.2.2,pci_dss_10.2.7,gdpr_IV_35.7.d,nist_800_53_AU.14,nist_800_53_CM.5,tsc_CC7.2,tsc_CC8.1,</group>
+  </rule>
+
+  <!-- Gatilhos, eventos agendados e regras: lógica que roda sozinha depois -->
+  <rule id="110704" level="5">
+    <if_group>reefed_query</if_group>
+    <field name="db.query" type="pcre2">(?i)(?:^|;)\s*(?:/\*(?!!).*?\*/\s*)*create\s+(?:or\s+replace\s+)?(?:definer\s*=\s*\S+\s+)?(?:trigger|event|rule)\b</field>
+    <description>Reefed: trigger/evento agendado criado no banco por $(dstuser) (origem $(db.client)).</description>
+    <mitre>
+      <id>T1505.001</id>
+    </mitre>
+    <group>reefed_persistence,pci_dss_10.2.7,nist_800_53_AU.14,tsc_CC8.1,</group>
+  </rule>
+
+  <rule id="110705" level="9">
+    <if_sid>110704</if_sid>
+    <list field="user" lookup="not_match_key">etc/lists/reefed/db-admins</list>
+    <description>Reefed: trigger/evento agendado criado por usuário que não é administrador ($(dstuser), origem $(db.client)).</description>
+    <mitre>
+      <id>T1505.001</id>
+    </mitre>
+    <group>reefed_persistence,reefed_non_admin,pci_dss_10.2.7,nist_800_53_AU.14,nist_800_53_AC.6,tsc_CC8.1,</group>
+  </rule>
+
+  <!-- Leitura de arquivos do servidor -->
+  <rule id="110710" level="12">
+    <if_group>reefed_query</if_group>
+    <field name="db.query" type="pcre2">(?i)\bpg_(?:read(?:_binary)?_file|ls_dir|stat_file|ls_logdir|ls_waldir|ls_tmpdir)\s*\(|\blo_import\s*\(|\bcopy\s+\S+(?:\s*\([^)]*\))?\s+from\s+\\?'</field>
+    <description>Reefed: arquivo do servidor lido pelo PostgreSQL a pedido de $(dstuser) (origem $(db.client)).</description>
+    <mitre>
+      <id>T1005</id>
+      <id>T1083</id>
+    </mitre>
+    <group>reefed_file_access,attack,pci_dss_10.2.1,pci_dss_11.4,gdpr_IV_35.7.d,hipaa_164.312.b,nist_800_53_AU.14,nist_800_53_SI.4,tsc_CC6.1,tsc_CC7.2,</group>
+  </rule>
+
+  <rule id="110711" level="12">
+    <if_group>reefed_query</if_group>
+    <field name="db.query" type="pcre2">(?i)\bload_file\s*\(|\bload\s+(?:data|xml)\s+(?:low_priority\s+|concurrent\s+)?infile\b</field>
+    <description>Reefed: arquivo do servidor lido pelo MySQL/MariaDB a pedido de $(dstuser) (origem $(db.client)).</description>
+    <mitre>
+      <id>T1005</id>
+    </mitre>
+    <group>reefed_file_access,attack,pci_dss_10.2.1,pci_dss_11.4,gdpr_IV_35.7.d,hipaa_164.312.b,nist_800_53_AU.14,nist_800_53_SI.4,tsc_CC6.1,tsc_CC7.2,</group>
+  </rule>
+
+  <!-- Credenciais: hashes de senha dos usuários do banco -->
+  <rule id="110715" level="10">
+    <if_group>reefed_query</if_group>
+    <field name="db.query" type="pcre2">(?i)\b(?:pg_shadow|pg_authid)\b|\bmysql`?\.`?global_priv\b|\bauthentication_string\b</field>
+    <description>Reefed: leitura dos hashes de senha do banco por $(dstuser) (origem $(db.client)).</description>
+    <mitre>
+      <id>T1555</id>
+    </mitre>
+    <group>reefed_credential,pci_dss_8.2.1,pci_dss_10.2.1,gdpr_IV_35.7.d,gdpr_IV_32.2,hipaa_164.312.b,nist_800_53_IA.5,nist_800_53_AU.14,tsc_CC6.1,tsc_CC7.2,</group>
+  </rule>
+
+  <rule id="110716" level="12">
+    <if_sid>110715</if_sid>
+    <list field="user" lookup="not_match_key">etc/lists/reefed/db-admins</list>
+    <description>Reefed: usuário que não é administrador ($(dstuser), origem $(db.client)) leu hashes de senha do banco.</description>
+    <mitre>
+      <id>T1555</id>
+    </mitre>
+    <group>reefed_credential,reefed_non_admin,pci_dss_8.2.1,pci_dss_10.2.1,gdpr_IV_35.7.d,gdpr_IV_32.2,hipaa_164.312.b,nist_800_53_IA.5,nist_800_53_AU.14,nist_800_53_AC.6,tsc_CC6.1,tsc_CC7.2,</group>
+  </rule>
+
+  <!-- Reconhecimento: listar usuários e permissões, por quem não é administrador -->
+  <rule id="110717" level="5">
+    <if_group>reefed_query</if_group>
+    <field name="db.query" type="pcre2">(?i)\b(?:pg_roles|pg_user|pg_auth_members|information_schema\.(?:user_privileges|schema_privileges|table_privileges|column_privileges|routine_privileges|usage_privileges|role_\w+_grants|enabled_roles|applicable_roles|administrable_role_authorizations)|mysql\.(?:user|db|tables_priv|columns_priv|roles_mapping))\b|\bshow\s+grants\b</field>
+    <list field="user" lookup="not_match_key">etc/lists/reefed/db-admins</list>
+    <description>Reefed: $(dstuser) listou usuários/permissões do banco (origem $(db.client)).</description>
+    <mitre>
+      <id>T1087</id>
+      <id>T1069</id>
+    </mitre>
+    <group>reefed_recon,pci_dss_10.2.1,nist_800_53_AU.14,tsc_CC7.2,</group>
+  </rule>
+
+  <!-- Parada do serviço e derrubada de sessões -->
+  <rule id="110720" level="10">
+    <if_group>reefed_query</if_group>
+    <field name="db.query" type="pcre2">(?i)(?:^|;)\s*(?:/\*(?!!).*?\*/\s*)*shutdown\b</field>
+    <description>Reefed: comando SHUTDOWN enviado ao banco por $(dstuser) (origem $(db.client)).</description>
+    <mitre>
+      <id>T1489</id>
+    </mitre>
+    <group>reefed_service,service_availability,pci_dss_10.2.6,nist_800_53_AU.14,tsc_A1.2,tsc_CC7.2,</group>
+  </rule>
+
+  <rule id="110721" level="6">
+    <if_group>reefed_query</if_group>
+    <field name="db.query" type="pcre2">(?i)\bpg_(?:terminate|cancel)_backend\s*\(|(?:^|;)\s*kill\s+(?:connection\s+|query\s+)?\d+</field>
+    <description>Reefed: sessão de outro usuário encerrada por $(dstuser) (origem $(db.client)).</description>
+    <mitre>
+      <id>T1489</id>
+    </mitre>
+    <group>reefed_service,nist_800_53_AU.14,tsc_A1.2,</group>
+  </rule>
+
+  <!-- Adulteração da auditoria -->
+  <rule id="110730" level="12">
+    <if_group>reefed_query</if_group>
+    <field name="db.query" type="pcre2">(?i)\bset\s+(?:global\s+|persist\s+|persist_only\s+|@@global\.|@@)?(?:general_log|slow_query_log|log_slow_extra|log_slow_admin_statements|log_queries_not_using_indexes)\s*=\s*\\?['"]?(?:off|0|false)\b|\blog_error_verbosity\s*=\s*[12]\b|\blong_query_time\s*=\s*\\?['"]?(?:[1-9]|0\.0*[1-9])|\bsql_log_off\s*=\s*\\?['"]?(?:on|1|true)\b|\blog_output\s*=\s*\\?['"]?none\b|\bserver_audit_(?:logging\s*=\s*\\?['"]?(?:off|0|false)\b|events\s*=|excl_users\s*=|incl_users\s*=|output_type\s*=\s*\\?['"]?(?:null|syslog)\b)|\buninstall\s+(?:plugin|soname|component)\b|\b(?:set|alter\s+system\s+set|alter\s+(?:role|user|database)\b[^;]*\bset)\s+(?:session\s+|local\s+)?(?:log_statement|pgaudit\.log|log_connections|log_disconnections)\s*(?:=|to)\s*\\?['"]?(?:none|off|false|0|ddl|mod)\b|\balter\s+system\s+(?:reset\s+(?:log_\w+|pgaudit\.\w+|logging_collector|all)|set\s+(?:logging_collector|log_destination|log_directory|log_line_prefix|shared_preload_libraries)\b)</field>
+    <description>Reefed: registro de auditoria do banco desligado/reduzido por $(dstuser) (origem $(db.client)).</description>
+    <mitre>
+      <id>T1562.001</id>
+    </mitre>
+    <group>reefed_tamper,pci_dss_10.2.6,pci_dss_10.5.2,gdpr_IV_35.7.d,hipaa_164.312.b,nist_800_53_AU.9,nist_800_53_AU.14,tsc_CC6.1,tsc_CC7.2,tsc_CC7.3,</group>
+  </rule>
+
+  <rule id="110731" level="10">
+    <if_group>reefed_query</if_group>
+    <field name="db.query" type="pcre2">(?i)\bsql_log_bin\s*=\s*\\?['"]?(?:0|off|false)\b|\bpurge\s+(?:binary|master)\s+logs\b|\breset\s+(?:master|binary\s+logs)\b</field>
+    <description>Reefed: log binário do MySQL/MariaDB desligado ou apagado por $(dstuser) (origem $(db.client)).</description>
+    <mitre>
+      <id>T1070</id>
+    </mitre>
+    <group>reefed_tamper,pci_dss_10.2.6,pci_dss_10.5.2,gdpr_IV_35.7.d,hipaa_164.312.b,nist_800_53_AU.9,tsc_CC7.2,</group>
+  </rule>
+
+  <rule id="110732" level="12">
+    <if_group>reefed_query</if_group>
+    <field name="db.query" type="pcre2">(?i)\b(?:truncate(?:\s+table)?|delete\s+from|drop\s+table(?:\s+if\s+exists)?)\s+[\w."`]*(?:general_log|slow_log|audit|auditoria)\w*</field>
+    <description>Reefed: tabela de log/auditoria apagada por $(dstuser) (origem $(db.client)).</description>
+    <mitre>
+      <id>T1070</id>
+    </mitre>
+    <group>reefed_tamper,pci_dss_10.2.6,pci_dss_10.5.2,gdpr_IV_35.7.d,hipaa_164.312.b,nist_800_53_AU.9,tsc_CC7.2,</group>
+  </rule>
+
+  <rule id="110733" level="8">
+    <if_group>reefed_query</if_group>
+    <field name="db.query" type="pcre2">(?i)\bdrop\s+(?:trigger|policy|rule)\b|\bdisable\s+(?:trigger|rule|row\s+level\s+security)\b|\bno\s+force\s+row\s+level\s+security\b|\bsession_replication_role\s*(?:=|to)\s*\\?['"]?replica\b</field>
+    <description>Reefed: trigger/política de segurança removida ou desativada por $(dstuser) (origem $(db.client)).</description>
+    <mitre>
+      <id>T1562.001</id>
+    </mitre>
+    <group>reefed_tamper,pci_dss_10.2.7,nist_800_53_AU.14,nist_800_53_CM.5,tsc_CC7.2,tsc_CC8.1,</group>
+  </rule>
+
+  <rule id="110734" level="5">
+    <if_group>reefed_query</if_group>
+    <field name="db.query" type="pcre2">(?i)(?:^|;)\s*(?:/\*(?!!).*?\*/\s*)*(?:alter\s+system\b|set\s+(?:global|persist|persist_only)\b|set\s+@@(?:global|persist)\.)</field>
+    <description>Reefed: configuração global do banco alterada via SQL por $(dstuser) (origem $(db.client)).</description>
+    <group>reefed_config,pci_dss_10.2.7,nist_800_53_CM.5,nist_800_53_AU.14,tsc_CC8.1,</group>
+  </rule>
+
+</group>

@@ -1,0 +1,53 @@
+# Gerado a partir de logs reais do PostgreSQL 17, MySQL 8.4 e MariaDB 11.4 (e variações).
+# Formato descrito em tests/run_tests.py.
+name: Correlação de etapas de um ataque
+cases:
+- name: SQL injection seguida de DROP TABLE (mesmo IP)
+  steps:
+  - log: '2026-10-22 14:05:10.120 UTC [4242] user=app db=loja client=10.70.0.1 app=psql LOG:  statement: SELECT * FROM clientes WHERE nome = '''' OR ''1''=''1'';'
+    expect:
+      rule: 110301
+  - log: '2026-10-22 14:05:10.120 UTC [4242] user=app db=loja client=10.70.0.1 app=psql LOG:  statement: DROP TABLE clientes;'
+    expect:
+      rule: 110950
+      level: 14
+      mitre:
+      - T1190
+      - T1485
+- name: SQL injection e DROP TABLE de IPs diferentes não correlacionam
+  steps:
+  - log: '2026-10-22 14:05:10.120 UTC [4242] user=app db=loja client=10.70.0.2 app=psql LOG:  statement: SELECT * FROM clientes WHERE nome = '''' OR ''1''=''1'';'
+  - log: '2026-10-22 14:05:10.120 UTC [4242] user=app db=loja client=10.70.0.3 app=psql LOG:  statement: DROP TABLE clientes;'
+    expect:
+      rule: 110421
+- name: SQL injection seguida de exportação
+  steps:
+  - log: '# Time: 2026-10-22T14:05:10.654784Z # User@Host: app[app] @  [10.70.0.4]  Id:    31 # Query_time: 0.000200  Lock_time: 0.000000 Rows_sent: 0  Rows_examined: 0 Thread_id: 31 Errno: 0 Killed: 0 Bytes_received: 43 Bytes_sent: 49 Read_first: 0 Read_last: 0 Read_key: 0 Read_next: 0 Read_prev: 0 Read_rnd: 0 Read_rnd_next: 0 Sort_merge_passes: 0 Sort_range_count: 0 Sort_rows: 0 Sort_scan_count: 0 Created_tmp_disk_tables: 0 Created_tmp_tables: 0 Start: 2026-10-22T14:05:10.654584Z End: 2026-10-22T14:05:10.654784Z SET timestamp=1792680310; SELECT nome FROM clientes WHERE id = 1 UNION SELECT NULL,NULL;'
+  - log: '# Time: 2026-10-22T14:05:10.654784Z # User@Host: app[app] @  [10.70.0.4]  Id:    31 # Query_time: 0.000200  Lock_time: 0.000000 Rows_sent: 0  Rows_examined: 0 Thread_id: 31 Errno: 0 Killed: 0 Bytes_received: 43 Bytes_sent: 49 Read_first: 0 Read_last: 0 Read_key: 0 Read_next: 0 Read_prev: 0 Read_rnd: 0 Read_rnd_next: 0 Sort_merge_passes: 0 Sort_range_count: 0 Sort_rows: 0 Sort_scan_count: 0 Created_tmp_disk_tables: 0 Created_tmp_tables: 0 Start: 2026-10-22T14:05:10.654584Z End: 2026-10-22T14:05:10.654784Z SET timestamp=1792680310; SELECT * FROM clientes INTO OUTFILE ''/tmp/c.csv'';'
+    expect:
+      rule: 110951
+      level: 14
+- name: Força bruta seguida de GRANT
+  steps:
+  - log: '2026-10-22 14:05:10.120 UTC [4242] user=postgres db=loja client=10.70.0.5 app=[unknown] FATAL:  password authentication failed for user "postgres"'
+    repeat: 5
+  - log: '2026-10-22 14:05:10.120 UTC [4242] user=postgres db=loja client=10.70.0.5 app=psql LOG:  statement: GRANT ALL PRIVILEGES ON DATABASE loja TO app;'
+    expect:
+      rule: 110952
+      level: 15
+- name: Força bruta seguida de DROP
+  steps:
+  - log: 20261022 14:05:10,dbserver,root,10.70.0.6,9,0,FAILED_CONNECT,,,1045
+    repeat: 5
+  - log: 20261022 14:05:10,dbserver,root,10.70.0.6,9,28,QUERY,loja,'DROP DATABASE loja',0
+    expect:
+      rule: 110953
+      level: 15
+- name: Força bruta seguida de exportação
+  steps:
+  - log: '2026-10-22 14:05:10.120 UTC [4242] user=postgres db=loja client=10.70.0.7 app=[unknown] FATAL:  password authentication failed for user "postgres"'
+    repeat: 5
+  - log: '2026-10-22 14:05:10.120 UTC [4242] user=postgres db=loja client=10.70.0.7 app=psql LOG:  statement: COPY clientes TO STDOUT;'
+    expect:
+      rule: 110954
+      level: 14

@@ -1,0 +1,151 @@
+<!--
+  Reefed - exportação e leitura em massa (IDs 110600-110649)
+
+  Sinais usados:
+    - dump do banco (pg_dump/pg_dumpall pela sessão; mysqldump/mariadb-dump pela
+      consulta que ele sempre faz no começo);
+    - gravação de dados em arquivo no servidor (INTO OUTFILE, COPY TO 'arquivo');
+    - COPY TO STDOUT fora do pg_dump (\copy do psql, scripts);
+    - número de linhas devolvidas (db.rows_sent, só no slow log do MySQL);
+    - muitas leituras de tabela inteira (SELECT * sem WHERE) em pouco tempo.
+
+  Os limites de linhas ficam nas expressões: ^\d{4,}$ = 1.000 ou mais,
+  ^\d{6,}$ = 100.000 ou mais. Ajuste conforme o tamanho das suas tabelas.
+-->
+
+<group name="reefed,database,">
+
+  <!-- Exceções (nível 0, testadas antes das outras): cada tabela copiada por um dump
+       geraria um alerta; o dump já é avisado uma vez pelas regras 110610 e 110611. -->
+  <rule id="110630" level="0">
+    <if_group>reefed_query</if_group>
+    <field name="db.app" type="pcre2">^pg_dump</field>
+    <field name="db.query" type="pcre2">(?i)^COPY\s+\S+\s+\([^)]*\)\s+TO\s+stdout;?$</field>
+    <description>Reefed: tabela copiada pelo pg_dump (o dump já foi alertado).</description>
+  </rule>
+
+  <rule id="110631" level="0">
+    <if_group>reefed_query</if_group>
+    <field name="db.query" type="pcre2">^SELECT /\*!40001 SQL_NO_CACHE \*/ \* FROM </field>
+    <description>Reefed: tabela lida pelo mysqldump (o dump já foi alertado).</description>
+  </rule>
+
+  <!-- Arquivo gravado no servidor do banco -->
+  <rule id="110600" level="12">
+    <if_group>reefed_query</if_group>
+    <field name="db.query" type="pcre2">(?i)\binto\s+(?:outfile|dumpfile)\b</field>
+    <description>Reefed: dados gravados em arquivo no servidor (INTO OUTFILE/DUMPFILE) por $(dstuser) (origem $(db.client)).</description>
+    <mitre>
+      <id>T1005</id>
+      <id>T1074.001</id>
+    </mitre>
+    <group>reefed_exfiltration,pci_dss_10.2.1,gdpr_IV_32.2,gdpr_IV_35.7.d,hipaa_164.312.b,nist_800_53_AU.14,nist_800_53_SI.4,tsc_CC6.1,tsc_CC7.2,</group>
+  </rule>
+
+  <rule id="110601" level="12">
+    <if_group>reefed_query</if_group>
+    <field name="db.query" type="pcre2">(?i)\bcopy\b[^;]*?\bto\s+\\?'|\blo_export\s*\(</field>
+    <description>Reefed: dados gravados em arquivo no servidor (COPY TO/lo_export) por $(dstuser) (origem $(db.client)).</description>
+    <mitre>
+      <id>T1005</id>
+      <id>T1074.001</id>
+    </mitre>
+    <group>reefed_exfiltration,pci_dss_10.2.1,gdpr_IV_32.2,gdpr_IV_35.7.d,hipaa_164.312.b,nist_800_53_AU.14,nist_800_53_SI.4,tsc_CC6.1,tsc_CC7.2,</group>
+  </rule>
+
+  <rule id="110602" level="7">
+    <if_group>reefed_query</if_group>
+    <field name="db.query" type="pcre2">(?i)\bcopy\b[^;]*?\bto\s+stdout\b</field>
+    <description>Reefed: exportação de tabela com COPY TO STDOUT por $(dstuser) (origem $(db.client)).</description>
+    <mitre>
+      <id>T1213</id>
+    </mitre>
+    <group>reefed_exfiltration,pci_dss_10.2.1,gdpr_IV_32.2,hipaa_164.312.b,nist_800_53_AU.14,tsc_CC6.1,</group>
+  </rule>
+
+  <!-- Linhas devolvidas (slow log do MySQL) -->
+  <rule id="110603" level="7">
+    <if_group>reefed_query</if_group>
+    <field name="db.rows_sent" type="pcre2">^[1-9]\d{3,}$</field>
+    <description>Reefed: consulta devolveu $(db.rows_sent) linhas para $(dstuser) (origem $(db.client)).</description>
+    <mitre>
+      <id>T1213</id>
+    </mitre>
+    <group>reefed_exfiltration,pci_dss_10.2.1,gdpr_IV_32.2,hipaa_164.312.b,nist_800_53_AU.14,tsc_CC6.1,</group>
+  </rule>
+
+  <rule id="110604" level="11">
+    <if_sid>110603</if_sid>
+    <field name="db.rows_sent" type="pcre2">^[1-9]\d{5,}$</field>
+    <description>Reefed: leitura em massa: consulta devolveu $(db.rows_sent) linhas para $(dstuser) (origem $(db.client)).</description>
+    <mitre>
+      <id>T1213</id>
+      <id>T1030</id>
+    </mitre>
+    <group>reefed_exfiltration,pci_dss_10.2.1,gdpr_IV_32.2,gdpr_IV_35.7.d,hipaa_164.312.b,nist_800_53_AU.14,tsc_CC6.1,tsc_CC7.2,</group>
+  </rule>
+
+  <rule id="110605" level="10" frequency="5" timeframe="300">
+    <if_matched_sid>110603</if_matched_sid>
+    <same_user />
+    <same_field>db.client</same_field>
+    <description>Reefed: $(dstuser) leu muitas linhas em várias consultas em 5 minutos (origem $(db.client)).</description>
+    <mitre>
+      <id>T1213</id>
+      <id>T1119</id>
+    </mitre>
+    <group>reefed_exfiltration,pci_dss_10.2.1,gdpr_IV_32.2,gdpr_IV_35.7.d,hipaa_164.312.b,nist_800_53_AU.14,tsc_CC6.1,tsc_CC7.2,</group>
+  </rule>
+
+  <!-- SELECT * sem WHERE: nível 2 (não alerta sozinho), só alimenta a contagem abaixo -->
+  <rule id="110606" level="2">
+    <if_group>reefed_query</if_group>
+    <field name="db.query" type="pcre2">(?i)^\s*select(?:\s|\\[nrt])+(?:\w+\.)?\*(?:\s|\\[nrt])+from(?:\s|\\[nrt])+[\w."`]+(?:(?:\s|\\[nrt])+order(?:\s|\\[nrt])+by(?:\s|\\[nrt])+[\w.,\s"`]+?)?\s*;?\s*$</field>
+    <description>Reefed: tabela lida por inteiro por $(dstuser).</description>
+    <group>reefed_fullread,</group>
+  </rule>
+
+  <rule id="110607" level="10" frequency="10" timeframe="120">
+    <if_matched_sid>110606</if_matched_sid>
+    <same_user />
+    <same_field>db.client</same_field>
+    <description>Reefed: $(dstuser) leu muitas tabelas inteiras em 2 minutos (origem $(db.client)): possível cópia em massa.</description>
+    <mitre>
+      <id>T1213</id>
+      <id>T1119</id>
+    </mitre>
+    <group>reefed_exfiltration,pci_dss_10.2.1,gdpr_IV_32.2,gdpr_IV_35.7.d,hipaa_164.312.b,nist_800_53_AU.14,tsc_CC6.1,tsc_CC7.2,</group>
+  </rule>
+
+  <!-- Dumps. No PostgreSQL o nome do programa aparece na linha "connection authorized". -->
+  <rule id="110610" level="8">
+    <if_sid>110005</if_sid>
+    <field name="db.message" type="pcre2">\bapplication_name=pg_dump(?:all)?\b</field>
+    <description>Reefed: dump do PostgreSQL iniciado por $(dstuser) no banco $(db.name) (origem $(db.client)).</description>
+    <mitre>
+      <id>T1213</id>
+    </mitre>
+    <group>reefed_exfiltration,reefed_dump,pci_dss_10.2.1,gdpr_IV_32.2,hipaa_164.312.b,nist_800_53_AU.14,tsc_CC6.1,</group>
+  </rule>
+
+  <rule id="110611" level="8">
+    <if_group>reefed_query</if_group>
+    <field name="db.query" type="pcre2">(?i)INFORMATION_SCHEMA\.FILES\s+WHERE\s+ENGINE\s*=\s*\\?'ndbcluster\\?'\s+AND\s+FILE_TYPE\s*=\s*\\?'UNDO LOG\\?'</field>
+    <description>Reefed: dump do MySQL/MariaDB (mysqldump) iniciado por $(dstuser) (origem $(db.client)).</description>
+    <mitre>
+      <id>T1213</id>
+    </mitre>
+    <group>reefed_exfiltration,reefed_dump,pci_dss_10.2.1,gdpr_IV_32.2,hipaa_164.312.b,nist_800_53_AU.14,tsc_CC6.1,</group>
+  </rule>
+
+  <rule id="110612" level="11">
+    <if_sid>110610, 110611</if_sid>
+    <list field="user" lookup="not_match_key">etc/lists/reefed/db-admins</list>
+    <description>Reefed: dump do banco feito por usuário que não é administrador ($(dstuser), origem $(db.client)).</description>
+    <mitre>
+      <id>T1213</id>
+    </mitre>
+    <group>reefed_exfiltration,reefed_dump,reefed_non_admin,pci_dss_10.2.1,gdpr_IV_32.2,gdpr_IV_35.7.d,hipaa_164.312.b,nist_800_53_AU.14,nist_800_53_AC.6,tsc_CC6.1,tsc_CC7.2,</group>
+  </rule>
+
+</group>

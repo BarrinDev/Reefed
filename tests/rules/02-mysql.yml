@@ -1,0 +1,141 @@
+# Gerado a partir de logs reais do PostgreSQL 17, MySQL 8.4 e MariaDB 11.4 (e variações).
+# Formato descrito em tests/run_tests.py.
+name: 'MySQL: error log, slow log e general log'
+cases:
+- name: Senha errada (error log)
+  log: '2026-10-22T14:05:10.954747Z 9 [Note] [MY-010926] [Server] Access denied for user ''root''@''172.18.0.4'' (using password: YES)'
+  expect:
+    decoder: reefed-mysql-error
+    rule: 110051
+    level: 5
+    fields:
+      dstuser: root
+      db.client: 172.18.0.4
+      srcip: 172.18.0.4
+    mitre:
+    - T1110.001
+    groups:
+    - authentication_failed
+- name: Senha errada vinda de nome de host
+  log: '2026-10-22T14:05:10.954747Z 9 [Note] [MY-010926] [Server] Access denied for user ''app''@''web01.lab'' (using password: YES)'
+  expect:
+    rule: 110051
+    fields:
+      dstuser: app
+      db.client: web01.lab
+    absent_fields:
+    - srcip
+- name: Servidor pronto
+  log: '2026-10-22T13:09:34.292848Z 0 [System] [MY-010931] [Server] /usr/sbin/mysqld: ready for connections. Version: ''8.4.13''  socket: ''/var/run/mysqld/mysqld.sock''  port: 3306  MySQL Community Server - GPL.'
+  expect:
+    rule: 110052
+    level: 3
+- name: SHUTDOWN pedido por um usuário
+  log: '2026-10-22T13:09:31.377710Z 10 [System] [MY-013172] [Server] Received SHUTDOWN from user root. Shutting down mysqld (Version: 8.4.13).'
+  expect:
+    rule: 110053
+    level: 7
+    fields:
+      dstuser: root
+    mitre:
+    - T1489
+- name: Servidor desligado
+  log: '2026-10-22T13:09:32.749671Z 0 [System] [MY-010910] [Server] /usr/sbin/mysqld: Shutdown complete (mysqld 8.4.13)  MySQL Community Server - GPL.'
+  expect:
+    rule: 110054
+    level: 3
+- name: Erro registrado pelo servidor
+  log: 2026-10-22T14:05:10.954747Z 0 [ERROR] [MY-010119] [Server] Aborting
+  expect:
+    rule: 110055
+    level: 3
+- name: Cabeçalho do log (log reaberto)
+  log: '/usr/sbin/mysqld, Version: 8.4.13 (MySQL Community Server - GPL). started with: Tcp port: 3306  Unix socket: /var/run/mysqld/mysqld.sock Time                 Id Command    Argument'
+  expect:
+    rule: 110063
+    level: 3
+- name: skip-grant-tables aparece e some (alerta só quando a resposta do comando muda)
+  log_format: full_command
+  steps:
+  # o primeiro passo só garante a referência "0" (depende do que ficou guardado antes)
+  - log: "ossec: output: 'reefed-db-flags':\nREEFED_SKIP_GRANT_TABLES=0"
+  - log: "ossec: output: 'reefed-db-flags':\nREEFED_SKIP_GRANT_TABLES=1"
+    expect:
+      rule: 110056
+      level: 12
+      mitre:
+      - T1556
+  - log: "ossec: output: 'reefed-db-flags':\nREEFED_SKIP_GRANT_TABLES=1"
+    expect:
+      no_alert: true
+  - log: "ossec: output: 'reefed-db-flags':\nREEFED_SKIP_GRANT_TABLES=0"
+    expect:
+      rule: 110058
+      level: 3
+  - log: "ossec: output: 'reefed-db-flags':\nREEFED_SKIP_GRANT_TABLES=0"
+    expect:
+      no_alert: true
+- name: Consulta comum (slow log) não alerta
+  log: '# Time: 2026-10-22T14:05:10.654784Z # User@Host: app[app] @  [10.20.0.16]  Id:    31 # Query_time: 0.000200  Lock_time: 0.000000 Rows_sent: 0  Rows_examined: 0 Thread_id: 31 Errno: 0 Killed: 0 Bytes_received: 43 Bytes_sent: 49 Read_first: 0 Read_last: 0 Read_key: 0 Read_next: 0 Read_prev: 0 Read_rnd: 0 Read_rnd_next: 0 Sort_merge_passes: 0 Sort_range_count: 0 Sort_rows: 0 Sort_scan_count: 0 Created_tmp_disk_tables: 0 Created_tmp_tables: 0 Start: 2026-10-22T14:05:10.654584Z End: 2026-10-22T14:05:10.654784Z SET timestamp=1792680310; SELECT id FROM pedidos WHERE id = 7;'
+  expect:
+    no_alert: true
+    rule: 110072
+- name: Campos da consulta (slow log)
+  log: '# Time: 2026-10-22T14:05:10.654784Z # User@Host: app[app] @  [10.20.0.16]  Id:    31 # Query_time: 0.000200  Lock_time: 0.000000 Rows_sent: 1  Rows_examined: 1 Thread_id: 31 Errno: 0 Killed: 0 Bytes_received: 43 Bytes_sent: 49 Read_first: 0 Read_last: 0 Read_key: 0 Read_next: 0 Read_prev: 0 Read_rnd: 0 Read_rnd_next: 0 Sort_merge_passes: 0 Sort_range_count: 0 Sort_rows: 0 Sort_scan_count: 0 Created_tmp_disk_tables: 0 Created_tmp_tables: 0 Start: 2026-10-22T14:05:10.654584Z End: 2026-10-22T14:05:10.654784Z use loja; SET timestamp=1792680310; SELECT id FROM pedidos WHERE id = 7;'
+  expect:
+    decoder: reefed-mysql-slow
+    rule: 110072
+    alert: false
+    fields:
+      dstuser: app
+      db.client: 10.20.0.16
+      srcip: 10.20.0.16
+      db.name: loja
+      db.query: SELECT id FROM pedidos WHERE id = 7
+      db.rows_sent: '1'
+      db.errno: '0'
+- name: Conexão local (slow log)
+  log: '# Time: 2026-10-22T14:05:10.654784Z # User@Host: root[root] @ localhost []  Id:    31 # Query_time: 0.000200  Lock_time: 0.000000 Rows_sent: 0  Rows_examined: 0 Thread_id: 31 Errno: 0 Killed: 0 Bytes_received: 43 Bytes_sent: 49 Read_first: 0 Read_last: 0 Read_key: 0 Read_next: 0 Read_prev: 0 Read_rnd: 0 Read_rnd_next: 0 Sort_merge_passes: 0 Sort_range_count: 0 Sort_rows: 0 Sort_scan_count: 0 Created_tmp_disk_tables: 0 Created_tmp_tables: 0 Start: 2026-10-22T14:05:10.654584Z End: 2026-10-22T14:05:10.654784Z SET timestamp=1792680310; SELECT 1;'
+  expect:
+    rule: 110072
+    fields:
+      db.client: localhost
+      dstuser: root
+    absent_fields:
+    - srcip
+    alert: false
+- name: Comando administrativo (Quit) não alerta
+  log: '# Time: 2026-10-22T13:36:29.438256Z # User@Host: root[root] @  [172.18.0.5]  Id:    19 # Query_time: 0.000019  Lock_time: 0.000000 Rows_sent: 0  Rows_examined: 1 Thread_id: 19 Errno: 0 Killed: 0 Bytes_received: 5 Bytes_sent: 0 Read_first: 0 Read_last: 0 Read_key: 0 Read_next: 0 Read_prev: 0 Read_rnd: 0 Read_rnd_next: 0 Sort_merge_passes: 0 Sort_range_count: 0 Sort_rows: 0 Sort_scan_count: 0 Created_tmp_disk_tables: 0 Created_tmp_tables: 0 Start: 2026-10-22T13:36:29.438237Z End: 2026-10-22T13:36:29.438256Z SET timestamp=1792676189; # administrator command: Quit;'
+  expect:
+    no_alert: true
+- name: Permissão negada (erro 1142)
+  log: '# Time: 2026-10-22T14:05:10.654784Z # User@Host: app[app] @  [10.20.0.16]  Id:    31 # Query_time: 0.000200  Lock_time: 0.000000 Rows_sent: 0  Rows_examined: 0 Thread_id: 31 Errno: 1142 Killed: 0 Bytes_received: 43 Bytes_sent: 49 Read_first: 0 Read_last: 0 Read_key: 0 Read_next: 0 Read_prev: 0 Read_rnd: 0 Read_rnd_next: 0 Sort_merge_passes: 0 Sort_range_count: 0 Sort_rows: 0 Sort_scan_count: 0 Created_tmp_disk_tables: 0 Created_tmp_tables: 0 Start: 2026-10-22T14:05:10.654584Z End: 2026-10-22T14:05:10.654784Z SET timestamp=1792680310; SELECT * FROM rh.salarios;'
+  expect:
+    rule: 110073
+    level: 4
+    groups:
+    - access_denied
+- name: Erro de SQL comum não alerta sozinho
+  log: '# Time: 2026-10-22T14:05:10.654784Z # User@Host: app[app] @  [10.20.0.16]  Id:    31 # Query_time: 0.000200  Lock_time: 0.000000 Rows_sent: 0  Rows_examined: 0 Thread_id: 31 Errno: 1054 Killed: 0 Bytes_received: 43 Bytes_sent: 49 Read_first: 0 Read_last: 0 Read_key: 0 Read_next: 0 Read_prev: 0 Read_rnd: 0 Read_rnd_next: 0 Sort_merge_passes: 0 Sort_range_count: 0 Sort_rows: 0 Sort_scan_count: 0 Created_tmp_disk_tables: 0 Created_tmp_tables: 0 Start: 2026-10-22T14:05:10.654584Z End: 2026-10-22T14:05:10.654784Z SET timestamp=1792680310; SELECT nome FROM clientes ORDER BY 5;'
+  expect:
+    rule: 110311
+    level: 2
+    alert: false
+- name: 'General log: conexão local'
+  when: business_hours
+  log: "2026-10-22T14:05:10.954731Z\t    9 Connect\troot@localhost on mysql using Socket"
+  expect:
+    decoder: reefed-mysql-general
+    rule: 110062
+    no_alert: true
+- name: 'General log: conexão local fora do horário'
+  when: off_hours
+  log: "2026-10-22T14:05:10.954731Z\t    9 Connect\troot@localhost on mysql using Socket"
+  expect:
+    rule: 110900
+    level: 8
+- name: 'General log: conexão recusada (o error log é que alerta)'
+  log: "2026-10-22T14:05:10.954731Z\t    9 Connect\tAccess denied for user 'root'@'172.18.0.4' (using password: YES)"
+  expect:
+    no_alert: true
+    rule: 110061

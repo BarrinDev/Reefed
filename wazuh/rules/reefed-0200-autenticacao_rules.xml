@@ -1,0 +1,100 @@
+<!--
+  Reefed - autenticação e acesso ao banco (IDs 110200-110249)
+
+  Valem para PostgreSQL, MySQL e MariaDB, porque usam os grupos das regras base:
+    reefed_login_fail   falha de login         reefed_login_ok   login aceito
+    reefed_session      nova sessão/conexão    reefed_denied     permissão negada
+
+  Contagens (frequency) agrupam por db.client, o cliente como o banco o registrou
+  (IP, hostname ou [local]), então funcionam mesmo sem IP.
+
+  Listas usadas (wazuh/lists, declaradas no ossec.conf):
+    etc/lists/reefed/trusted-db-clients   IPs/redes que podem acessar o banco
+    etc/lists/reefed/db-admins            usuários de administração
+-->
+
+<group name="reefed,database,">
+
+  <!-- Força bruta: 5 falhas da mesma origem em 2 minutos. Dispara o Active Response. -->
+  <rule id="110200" level="10" frequency="5" timeframe="120">
+    <if_matched_group>reefed_login_fail</if_matched_group>
+    <same_field>db.client</same_field>
+    <description>Reefed: força bruta contra o banco a partir de $(db.client) (5+ falhas de login em 2 min, último usuário $(dstuser)).</description>
+    <mitre>
+      <id>T1110.001</id>
+    </mitre>
+    <group>authentication_failures,reefed_bruteforce,pci_dss_11.4,pci_dss_10.2.4,pci_dss_10.2.5,gdpr_IV_35.7.d,gdpr_IV_32.2,hipaa_164.312.b,nist_800_53_SI.4,nist_800_53_AU.14,nist_800_53_AC.7,tsc_CC6.1,tsc_CC6.8,tsc_CC7.2,tsc_CC7.3,</group>
+  </rule>
+
+  <!-- Password spraying: 5 falhas da mesma origem, cada uma num usuário diferente das
+       anteriores. Também dispara o Active Response. -->
+  <rule id="110201" level="12" frequency="5" timeframe="300">
+    <if_matched_group>reefed_login_fail</if_matched_group>
+    <same_field>db.client</same_field>
+    <different_user />
+    <description>Reefed: password spraying contra o banco a partir de $(db.client) (falhas de login em vários usuários).</description>
+    <mitre>
+      <id>T1110.003</id>
+    </mitre>
+    <group>authentication_failures,reefed_bruteforce,pci_dss_11.4,pci_dss_10.2.4,pci_dss_10.2.5,gdpr_IV_35.7.d,gdpr_IV_32.2,hipaa_164.312.b,nist_800_53_SI.4,nist_800_53_AU.14,nist_800_53_AC.7,tsc_CC6.1,tsc_CC6.8,tsc_CC7.2,tsc_CC7.3,</group>
+  </rule>
+
+  <!-- Força bruta distribuída: o mesmo usuário errando a senha a partir de várias origens -->
+  <rule id="110202" level="12" frequency="8" timeframe="300">
+    <if_matched_group>reefed_login_fail</if_matched_group>
+    <same_user />
+    <different_field>db.client</different_field>
+    <description>Reefed: força bruta distribuída contra o usuário $(dstuser) do banco (falhas vindas de várias origens).</description>
+    <mitre>
+      <id>T1110</id>
+    </mitre>
+    <group>authentication_failures,reefed_bruteforce,pci_dss_11.4,pci_dss_10.2.4,pci_dss_10.2.5,gdpr_IV_35.7.d,gdpr_IV_32.2,hipaa_164.312.b,nist_800_53_SI.4,nist_800_53_AU.14,nist_800_53_AC.7,tsc_CC6.1,tsc_CC6.8,tsc_CC7.2,tsc_CC7.3,</group>
+  </rule>
+
+  <!-- Login aceito logo depois de 4+ falhas da mesma origem: senha provavelmente descoberta.
+       Nível 13 para não ser bloqueada pela marcação das regras de nível 12 acima. -->
+  <rule id="110203" level="13" frequency="5" timeframe="600">
+    <if_group>reefed_login_ok</if_group>
+    <if_matched_group>reefed_login_fail</if_matched_group>
+    <same_field>db.client</same_field>
+    <description>Reefed: login aceito para $(dstuser) a partir de $(db.client) depois de várias falhas (senha possivelmente descoberta).</description>
+    <mitre>
+      <id>T1110</id>
+      <id>T1078</id>
+    </mitre>
+    <group>authentication_success,reefed_bruteforce,reefed_compromise,pci_dss_10.2.4,pci_dss_10.2.5,gdpr_IV_35.7.d,gdpr_IV_32.2,hipaa_164.312.b,nist_800_53_AU.14,nist_800_53_AC.7,tsc_CC6.1,tsc_CC6.8,tsc_CC7.2,tsc_CC7.3,</group>
+  </rule>
+
+  <!-- Acesso a partir de um IP fora da lista de clientes confiáveis -->
+  <rule id="110210" level="10">
+    <if_group>reefed_session</if_group>
+    <list field="srcip" lookup="not_address_match_key">etc/lists/reefed/trusted-db-clients</list>
+    <description>Reefed: acesso ao banco a partir de IP desconhecido $(srcip) (usuário $(dstuser)).</description>
+    <mitre>
+      <id>T1078</id>
+    </mitre>
+    <group>reefed_unknown_ip,pci_dss_10.2.5,pci_dss_10.6.1,gdpr_IV_32.2,gdpr_IV_35.7.d,hipaa_164.312.b,nist_800_53_AU.14,nist_800_53_AC.7,tsc_CC6.1,tsc_CC6.8,tsc_CC7.2,tsc_CC7.3,</group>
+  </rule>
+
+  <rule id="110211" level="12">
+    <if_sid>110210</if_sid>
+    <list field="user" lookup="match_key">etc/lists/reefed/db-admins</list>
+    <description>Reefed: conta administrativa $(dstuser) acessada a partir de IP desconhecido $(srcip).</description>
+    <mitre>
+      <id>T1078.001</id>
+    </mitre>
+    <group>reefed_unknown_ip,pci_dss_10.2.2,pci_dss_10.2.5,gdpr_IV_32.2,gdpr_IV_35.7.d,hipaa_164.312.b,nist_800_53_AU.14,nist_800_53_AC.6,nist_800_53_AC.7,tsc_CC6.1,tsc_CC6.8,tsc_CC7.2,tsc_CC7.3,</group>
+  </rule>
+
+  <!-- Muitas permissões negadas para o mesmo usuário: tentando ler o que não pode -->
+  <rule id="110220" level="10" frequency="8" timeframe="300">
+    <if_matched_group>reefed_denied</if_matched_group>
+    <same_user />
+    <description>Reefed: $(dstuser) teve muitos acessos negados no banco em 5 minutos (tentando acessar dados sem permissão).</description>
+    <mitre>
+      <id>T1213</id>
+    </mitre>
+    <group>reefed_access_burst,access_denied,pci_dss_10.2.4,gdpr_IV_32.2,hipaa_164.312.b,nist_800_53_AU.14,nist_800_53_AC.6,tsc_CC6.1,tsc_CC7.2,</group>
+  </rule>
+
+</group>

@@ -1,0 +1,155 @@
+<!--
+  Reefed - regras base do MySQL 8.x (IDs 110050-110099)
+
+  Três fontes, cada uma com o seu decoder (veja decoders/0012-reefed-mysql_decoders.xml):
+    error log   reefed-mysql-error    falhas de login, início e parada do servidor
+    slow log    reefed-mysql-slow     todos os comandos SQL, com usuário, IP, erro e linhas
+    general log reefed-mysql-general  linhas Connect (nova conexão com usuário e IP)
+
+  Grupos usados pelas detecções genéricas (iguais aos do PostgreSQL):
+    reefed_query, reefed_dberror, reefed_login_fail, reefed_session
+
+  O MySQL Community não registra o login bem-sucedido. A linha "Connect" do general
+  log aparece em toda tentativa de conexão, por isso ela marca reefed_session
+  (nova conexão), mas não authentication_success.
+-->
+
+<group name="reefed,database,mysql,">
+
+  <!-- Error log -->
+  <rule id="110050" level="0">
+    <decoded_as>reefed-mysql-error</decoded_as>
+    <description>Reefed: evento do error log do MySQL.</description>
+  </rule>
+
+  <rule id="110051" level="5">
+    <if_sid>110050</if_sid>
+    <field name="db.code">^MY-010926$</field>
+    <description>Reefed: falha de login no MySQL (usuário $(dstuser), origem $(db.client)).</description>
+    <mitre>
+      <id>T1110.001</id>
+    </mitre>
+    <group>authentication_failed,reefed_login_fail,pci_dss_10.2.4,pci_dss_10.2.5,gdpr_IV_35.7.d,gdpr_IV_32.2,hipaa_164.312.b,nist_800_53_AU.14,nist_800_53_AC.7,tsc_CC6.1,tsc_CC6.8,tsc_CC7.2,tsc_CC7.3,</group>
+  </rule>
+
+  <rule id="110052" level="3">
+    <if_sid>110050</if_sid>
+    <field name="db.code">^MY-010931$</field>
+    <description>Reefed: MySQL iniciado e aceitando conexões.</description>
+    <group>reefed_service,</group>
+  </rule>
+
+  <rule id="110053" level="7">
+    <if_sid>110050</if_sid>
+    <field name="db.code">^MY-013172$</field>
+    <description>Reefed: MySQL recebeu um pedido de desligamento do usuário $(dstuser).</description>
+    <mitre>
+      <id>T1489</id>
+    </mitre>
+    <group>reefed_service,service_availability,</group>
+  </rule>
+
+  <rule id="110054" level="3">
+    <if_sid>110050</if_sid>
+    <field name="db.code">^MY-010910$</field>
+    <description>Reefed: MySQL desligado.</description>
+    <group>reefed_service,</group>
+  </rule>
+
+  <!-- O pré-decoder pode cortar o começo do nível ("RROR"), por isso o fim da palavra -->
+  <rule id="110055" level="3">
+    <if_sid>110050</if_sid>
+    <field name="db.severity" type="pcre2">(?i)ror$</field>
+    <description>Reefed: erro registrado pelo MySQL: $(db.message)</description>
+    <group>reefed_service,</group>
+  </rule>
+
+  <!-- skip-grant-tables desliga a verificação de senha. O MySQL 8 não escreve nada sobre
+       isso no error log, então quem verifica é um comando do agente do servidor de banco
+       (alias reefed-db-flags, que o agents/linux/install-agent.sh instala em servidor MySQL/MariaDB):
+       ele procura a opção na linha de comando do mysqld/mariadbd e nos arquivos de
+       configuração e responde REEFED_SKIP_GRANT_TABLES=0 ou 1 a cada 5 minutos.
+       O check_diff faz a regra-mãe só valer quando a resposta muda, então o alerta sai
+       uma vez quando a opção aparece e outra quando ela some, sem repetir a cada
+       execução. A primeira resposta de um agente novo só fica guardada como referência. -->
+  <rule id="110057" level="0">
+    <if_sid>530</if_sid>
+    <match>^ossec: output: 'reefed-db-flags'</match>
+    <check_diff />
+    <description>Reefed: resultado da verificação de skip-grant-tables mudou.</description>
+  </rule>
+
+  <rule id="110056" level="12">
+    <if_sid>110057</if_sid>
+    <regex type="pcre2">REEFED_SKIP_GRANT_TABLES=1</regex>
+    <description>Reefed: MySQL/MariaDB configurado para rodar sem verificação de senha (skip-grant-tables).</description>
+    <mitre>
+      <id>T1556</id>
+    </mitre>
+    <group>reefed_tamper,pci_dss_10.2.6,pci_dss_8.2,gdpr_IV_35.7.d,hipaa_164.312.d,nist_800_53_IA.2,tsc_CC6.1,</group>
+  </rule>
+
+  <rule id="110058" level="3">
+    <if_sid>110057</if_sid>
+    <regex type="pcre2">REEFED_SKIP_GRANT_TABLES=0</regex>
+    <description>Reefed: skip-grant-tables não aparece mais na configuração do MySQL/MariaDB.</description>
+    <group>reefed_tamper,</group>
+  </rule>
+
+  <!-- Slow query log: um evento por comando -->
+  <rule id="110070" level="0">
+    <decoded_as>reefed-mysql-slow</decoded_as>
+    <description>Reefed: comando registrado no slow log do MySQL.</description>
+  </rule>
+
+  <!-- Comando com erro (precisa de log_slow_extra). Vem antes da 110072 de propósito. -->
+  <rule id="110071" level="0">
+    <if_sid>110070</if_sid>
+    <field name="db.query">\.</field>
+    <field name="db.errno" type="pcre2">^[1-9]</field>
+    <description>Reefed: comando SQL com erro $(db.errno) no MySQL, executado por $(dstuser).</description>
+    <group>reefed_query,reefed_dberror,</group>
+  </rule>
+
+  <rule id="110072" level="0">
+    <if_sid>110070</if_sid>
+    <field name="db.query">\.</field>
+    <description>Reefed: comando SQL executado no MySQL por $(dstuser).</description>
+    <group>reefed_query,</group>
+  </rule>
+
+  <!-- Erros de permissão: 1044/1142/1143/1227... ("command denied to user") -->
+  <rule id="110073" level="4">
+    <if_sid>110071</if_sid>
+    <field name="db.errno" type="pcre2">^(?:1044|1142|1143|1227|1370|1410|3530)$</field>
+    <description>Reefed: permissão negada no MySQL para $(dstuser) (erro $(db.errno)).</description>
+    <group>reefed_denied,access_denied,</group>
+  </rule>
+
+  <!-- General log: só as conexões interessam (os comandos vêm do slow log) -->
+  <rule id="110060" level="0">
+    <decoded_as>reefed-mysql-general</decoded_as>
+    <description>Reefed: evento do general log do MySQL.</description>
+  </rule>
+
+  <rule id="110061" level="0">
+    <if_sid>110060</if_sid>
+    <field name="db.command">^Connect$</field>
+    <field name="db.message" type="pcre2">^Access denied </field>
+    <description>Reefed: conexão recusada no MySQL (o error log gera o alerta de falha de login).</description>
+  </rule>
+
+  <rule id="110062" level="0">
+    <if_sid>110060</if_sid>
+    <field name="db.command">^Connect$</field>
+    <description>Reefed: nova conexão no MySQL (usuário $(dstuser), origem $(db.client)).</description>
+    <group>reefed_session,</group>
+  </rule>
+
+  <rule id="110063" level="3">
+    <decoded_as>reefed-mysql-general-header</decoded_as>
+    <description>Reefed: log de consultas do MySQL (re)aberto (versão $(db.version)).</description>
+    <group>reefed_config,</group>
+  </rule>
+
+</group>

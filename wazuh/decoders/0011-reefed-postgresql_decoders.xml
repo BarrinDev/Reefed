@@ -1,0 +1,47 @@
+<!--
+  Reefed - decoders do PostgreSQL (log em texto: stderr + logging_collector)
+
+  Configuração esperada no postgresql.conf (veja agents/database/postgresql/):
+    log_line_prefix = '%m [%p] user=%u db=%d client=%h app=%a '
+
+  Exemplos:
+    2026-10-22 13:10:14.995 UTC [76] user=postgres db=postgres client=172.18.0.4 app=[unknown] FATAL:  password authentication failed for user "postgres"
+    2026-10-22 13:10:37.855 UTC [103] user=postgres db=loja client=172.18.0.4 app=psql LOG:  statement: DROP TABLE clientes;
+
+  Campos extraídos:
+    dstuser       usuário do banco (%u)
+    srcip         IP do cliente (%h), só quando for um endereço IP
+    db.pid        PID do processo do PostgreSQL (%p)
+    db.name       banco de dados (%d)
+    db.client     cliente como aparece no log (%h): IP, hostname ou [local]
+    db.app        application_name (%a)
+    db.severity   LOG, ERROR, FATAL, PANIC, STATEMENT, DETAIL...
+    db.message    texto da mensagem
+    db.query      comando SQL das linhas "statement:" e "execute ...:"
+
+  O arquivo começa com 0001 para ser carregado antes do ruleset padrão do Wazuh:
+  alguns decoders padrão (ex.: windows-date-format) também casam com linhas que
+  começam com data e hora.
+-->
+
+<decoder name="reefed-postgresql">
+  <prematch type="pcre2">^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)? \S+ \[\d+\] user=\S* db=\S* client=\S* app=</prematch>
+</decoder>
+
+<decoder name="reefed-postgresql-fields">
+  <parent>reefed-postgresql</parent>
+  <regex type="pcre2">^\S+ \S+ \S+ \[(\d+)\] user=(\S*) db=(\S*) client=(\S*) app=(.*?) (LOG|ERROR|FATAL|PANIC|WARNING|NOTICE|INFO|DEBUG\d?|DETAIL|HINT|STATEMENT|CONTEXT|QUERY|LOCATION):\s+(.*)$</regex>
+  <order>db.pid,dstuser,db.name,db.client,db.app,db.severity,db.message</order>
+</decoder>
+
+<decoder name="reefed-postgresql-fields">
+  <parent>reefed-postgresql</parent>
+  <regex type="pcre2"> client=(\d{1,3}(?:\.\d{1,3}){3}|[0-9A-Fa-f]{0,4}:[0-9A-Fa-f:.]+) app=</regex>
+  <order>srcip</order>
+</decoder>
+
+<decoder name="reefed-postgresql-fields">
+  <parent>reefed-postgresql</parent>
+  <regex type="pcre2"> LOG:\s+(?:duration: [\d.]+ ms\s+)?(?:statement|execute [^:]+): (.*)$</regex>
+  <order>db.query</order>
+</decoder>

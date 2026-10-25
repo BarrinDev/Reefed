@@ -1,0 +1,80 @@
+<!--
+  Reefed - integridade de arquivos do servidor de banco (IDs 110800-110849)
+
+  Usa os alertas do FIM/syscheck do Wazuh (550 alterado, 553 apagado, 554 criado).
+  Os diretórios monitorados ficam na configuração do grupo "database" dos agentes
+  (wazuh/shared/database/agent.conf): configuração do PostgreSQL/MySQL/MariaDB,
+  diretórios de plugins e bibliotecas, chaves TLS, logs do banco e a própria
+  configuração do agente.
+-->
+
+<group name="reefed,database,reefed_fim,syscheck,">
+
+  <!-- pg_hba.conf / pg_ident.conf: quem pode entrar e como (trust desliga a senha) -->
+  <rule id="110800" level="12">
+    <if_sid>550, 553, 554</if_sid>
+    <field name="file" type="pcre2">(?i)(?:^|[/\\])pg_(?:hba|ident)\.conf$</field>
+    <description>Reefed: arquivo de autenticação do PostgreSQL alterado: $(file)</description>
+    <mitre>
+      <id>T1556</id>
+    </mitre>
+    <group>pci_dss_11.5,pci_dss_10.2.7,gdpr_II_5.1.f,hipaa_164.312.c.1,hipaa_164.312.c.2,nist_800_53_SI.7,nist_800_53_CM.5,tsc_PI1.4,tsc_PI1.5,tsc_CC6.1,tsc_CC6.8,tsc_CC7.2,tsc_CC7.3,</group>
+  </rule>
+
+  <rule id="110801" level="10">
+    <if_sid>550, 554</if_sid>
+    <field name="file" type="pcre2">(?i)(?:^|[/\\])(?:postgresql(?:\.auto)?\.conf|my\.cnf|my\.ini|mysqld?\.cnf|mariadb\.cnf|server\.cnf|50-server\.cnf|reefed\.cnf|reefed\.conf)$|/(?:conf\.d|mysql\.conf\.d|mariadb\.conf\.d|my\.cnf\.d)/[^/]+\.cnf$|/postgresql/.+/conf\.d/[^/]+\.conf$</field>
+    <description>Reefed: configuração do banco alterada: $(file)</description>
+    <mitre>
+      <id>T1562.001</id>
+    </mitre>
+    <group>pci_dss_11.5,pci_dss_10.2.7,gdpr_II_5.1.f,hipaa_164.312.c.1,hipaa_164.312.c.2,nist_800_53_SI.7,nist_800_53_CM.5,tsc_PI1.4,tsc_PI1.5,tsc_CC6.1,tsc_CC6.8,tsc_CC7.2,tsc_CC7.3,</group>
+  </rule>
+
+  <!-- Biblioteca nova ou trocada no diretório de plugins: UDF/extensão maliciosa -->
+  <rule id="110802" level="12">
+    <if_sid>550, 554</if_sid>
+    <field name="file" type="pcre2">(?i)[/\\](?:mysql|mariadb\w*|lib)[/\\]plugin[/\\][^/\\]+$|[/\\]postgresql[/\\][^/\\]+[/\\](?:lib|(?:share[/\\])?extension)[/\\][^/\\]+$|[/\\]pgsql-[^/\\]+[/\\]lib[/\\][^/\\]+$</field>
+    <description>Reefed: biblioteca/extensão nova ou alterada no diretório de plugins do banco: $(file)</description>
+    <mitre>
+      <id>T1505.001</id>
+    </mitre>
+    <group>pci_dss_11.5,gdpr_II_5.1.f,hipaa_164.312.c.1,hipaa_164.312.c.2,nist_800_53_SI.7,tsc_PI1.4,tsc_PI1.5,tsc_CC6.1,tsc_CC6.8,tsc_CC7.2,tsc_CC7.3,</group>
+  </rule>
+
+  <rule id="110803" level="8">
+    <if_sid>550, 553, 554</if_sid>
+    <field name="file" type="pcre2">(?i)(?:^|[/\\])(?:server\.key|server\.crt|server-key\.pem|server-cert\.pem|ca\.pem|ca-key\.pem|private_key\.pem|public_key\.pem)$</field>
+    <description>Reefed: chave/certificado TLS do banco alterado: $(file)</description>
+    <mitre>
+      <id>T1552.004</id>
+    </mitre>
+    <group>pci_dss_11.5,pci_dss_4.1,gdpr_II_5.1.f,hipaa_164.312.c.1,hipaa_164.312.e.1,nist_800_53_SI.7,nist_800_53_SC.8,tsc_PI1.4,tsc_CC6.1,tsc_CC6.7,tsc_CC7.2,</group>
+  </rule>
+
+  <!-- Configuração ou log do banco apagado. Só valem os logs "ativos" (terminados em
+       .log, ou .err no MySQL do Windows): os arquivos girados (.log.1, .gz) ficam de
+       fora do FIM e da regra. No Windows os logs do MySQL/MariaDB ficam na pasta de
+       dados (Data), onde o install-agent.ps1 configura o FIM. -->
+  <rule id="110804" level="12">
+    <if_sid>553</if_sid>
+    <field name="file" type="pcre2">(?i)^/etc/(?:postgresql|mysql|my\.cnf\.d)/.*\.(?:conf|cnf)$|^/etc/my\.cnf$|(?:^|[/\\])(?:postgresql(?:\.auto)?|pg_hba|pg_ident|reefed)\.conf$|(?:^|[/\\])my\.ini$|^/var/log/(?:postgresql|mysql|mariadb)/[^/]+\.log$|^/var/log/mysqld\.log$|[/\\](?:pg_log|log)[/\\]postgresql-[^/\\]*\.log$|\\(?:mysql|mariadb)[^\\]*\\(?:[^\\]+\\)*data\\[^\\]+\.(?:log|err)$</field>
+    <description>Reefed: arquivo de configuração/log do banco apagado: $(file)</description>
+    <mitre>
+      <id>T1070.004</id>
+    </mitre>
+    <group>pci_dss_10.5.2,pci_dss_11.5,gdpr_II_5.1.f,hipaa_164.312.b,hipaa_164.312.c.1,nist_800_53_AU.9,nist_800_53_SI.7,tsc_CC7.2,tsc_CC7.3,</group>
+  </rule>
+
+  <!-- Configuração do agente do Wazuh no servidor de banco -->
+  <rule id="110805" level="10">
+    <if_sid>550, 553</if_sid>
+    <field name="file" type="pcre2">(?i)/var/ossec/etc/(?:ossec\.conf|local_internal_options\.conf|client\.keys)$|\\ossec-agent\\(?:ossec\.conf|local_internal_options\.conf|client\.keys)$</field>
+    <description>Reefed: configuração do agente do Reefed/Wazuh alterada: $(file)</description>
+    <mitre>
+      <id>T1562.001</id>
+    </mitre>
+    <group>reefed_tamper,pci_dss_10.5.2,pci_dss_11.5,gdpr_II_5.1.f,hipaa_164.312.b,nist_800_53_AU.9,nist_800_53_SI.7,tsc_CC7.2,tsc_CC7.3,</group>
+  </rule>
+
+</group>

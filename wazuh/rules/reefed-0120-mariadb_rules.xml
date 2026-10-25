@@ -1,0 +1,79 @@
+<!--
+  Reefed - regras base do MariaDB com o plugin server_audit (IDs 110100-110149)
+
+  O server_audit registra conexões (CONNECT, FAILED_CONNECT, DISCONNECT), cada
+  comando (QUERY) e o acesso às tabelas (READ, WRITE, CREATE, DROP...). As regras
+  daqui só classificam os eventos; as detecções ficam nos arquivos reefed-0200 em
+  diante e usam os mesmos grupos do PostgreSQL e do MySQL.
+
+  Os eventos de tabela (READ/WRITE...) repetem o que o QUERY já mostra e ficam no
+  nível 0 (sem alerta), mas continuam no arquivo de arquivamento, se ele estiver ligado.
+-->
+
+<group name="reefed,database,mariadb,">
+
+  <rule id="110100" level="0">
+    <decoded_as>reefed-mariadb-audit</decoded_as>
+    <description>Reefed: evento de auditoria do MariaDB.</description>
+  </rule>
+
+  <!-- Comando com erro: vem antes da 110102 de propósito -->
+  <rule id="110101" level="0">
+    <if_sid>110100</if_sid>
+    <field name="db.operation">^QUERY</field>
+    <field name="db.retcode" type="pcre2">^[1-9]</field>
+    <description>Reefed: comando SQL com erro $(db.retcode) no MariaDB, executado por $(dstuser).</description>
+    <group>reefed_query,reefed_dberror,</group>
+  </rule>
+
+  <rule id="110102" level="0">
+    <if_sid>110100</if_sid>
+    <field name="db.operation">^QUERY</field>
+    <description>Reefed: comando SQL executado no MariaDB por $(dstuser).</description>
+    <group>reefed_query,</group>
+  </rule>
+
+  <rule id="110103" level="3">
+    <if_sid>110100</if_sid>
+    <field name="db.operation">^CONNECT$</field>
+    <field name="db.retcode">^0$</field>
+    <description>Reefed: login no MariaDB (usuário $(dstuser), origem $(db.client)).</description>
+    <mitre>
+      <id>T1078</id>
+    </mitre>
+    <group>authentication_success,reefed_login_ok,reefed_session,pci_dss_10.2.5,gdpr_IV_32.2,hipaa_164.312.b,nist_800_53_AU.14,nist_800_53_AC.7,tsc_CC6.8,tsc_CC7.2,tsc_CC7.3,</group>
+  </rule>
+
+  <rule id="110104" level="5">
+    <if_sid>110100</if_sid>
+    <field name="db.operation">^FAILED_CONNECT$</field>
+    <description>Reefed: falha de login no MariaDB (usuário $(dstuser), origem $(db.client), código $(db.retcode)).</description>
+    <mitre>
+      <id>T1110.001</id>
+    </mitre>
+    <group>authentication_failed,reefed_login_fail,pci_dss_10.2.4,pci_dss_10.2.5,gdpr_IV_35.7.d,gdpr_IV_32.2,hipaa_164.312.b,nist_800_53_AU.14,nist_800_53_AC.7,tsc_CC6.1,tsc_CC6.8,tsc_CC7.2,tsc_CC7.3,</group>
+  </rule>
+
+  <!-- 1044: senha certa, mas sem permissão no banco pedido -->
+  <rule id="110105" level="5">
+    <if_sid>110104</if_sid>
+    <field name="db.retcode">^1044$</field>
+    <description>Reefed: $(dstuser) tentou abrir um banco sem permissão no MariaDB (origem $(db.client)).</description>
+    <group>reefed_denied,access_denied,</group>
+  </rule>
+
+  <rule id="110106" level="3">
+    <if_sid>110100</if_sid>
+    <field name="db.operation">^CHANGEUSER$</field>
+    <description>Reefed: troca de usuário dentro de uma sessão do MariaDB (agora $(dstuser), origem $(db.client)).</description>
+    <group>reefed_session,</group>
+  </rule>
+
+  <rule id="110107" level="4">
+    <if_sid>110101</if_sid>
+    <field name="db.retcode" type="pcre2">^(?:1044|1142|1143|1227|1370|1410)$</field>
+    <description>Reefed: permissão negada no MariaDB para $(dstuser) (erro $(db.retcode)).</description>
+    <group>reefed_denied,access_denied,</group>
+  </rule>
+
+</group>

@@ -1,0 +1,227 @@
+# Reefed - laboratório de validação.
+#
+# Sobe três bancos (PostgreSQL, MySQL e MariaDB), um agente do Reefed ao lado de
+# cada um, um app que gera tráfego normal e um atacante. Os agentes se registram
+# no manager do stack principal (rede reefed_default) e mandam os logs; os
+# ataques devem virar alertas, bloqueio de IP e notificações.
+#
+# Pré-requisito: o stack principal no ar com o override do laboratório
+#   docker compose -f docker-compose.yml -f lab/manager.override.yml up -d
+# (o manager manda os alertas para o mock em vez de Telegram/Slack/SMTP reais).
+#
+# Fluxo (veja o Makefile e lab/README.md):
+#   make lab-up        bancos + agentes + mock
+#   make lab-attack    tráfego normal e depois os ataques
+#   make lab-validate  confere que os ataques viraram alertas
+
+name: reefed-lab
+
+x-logging: &logging
+  driver: json-file
+  options: {max-size: "10m", max-file: "3"}
+
+# Imagem do app, do atacante e do validador (lab/runner)
+x-runner: &runner
+  image: reefed-lab-runner:local
+  build: {context: ./runner}
+
+services:
+  # Receptor falso de Telegram/Slack/SMTP (o manager do lab aponta para cá).
+  mock-alerts:
+    image: python:3.12-slim
+    hostname: mock-alerts
+    restart: unless-stopped
+    logging: *logging
+    command: ["python", "/srv/server.py"]
+    volumes:
+      - ./mock-alerts/server.py:/srv/server.py:ro
+    networks: [reefed_default]
+
+  # ------------------------------------------------------------- PostgreSQL
+  postgres:
+    image: postgres:17
+    hostname: lab-postgres
+    restart: unless-stopped
+    logging: *logging
+    environment:
+      POSTGRES_PASSWORD: postgres-lab
+    command:
+      - postgres
+      - -c
+      - logging_collector=on
+      - -c
+      - log_directory=log
+      - -c
+      - log_filename=postgresql-%Y-%m-%d.log
+      - -c
+      - log_rotation_age=0
+      - -c
+      # aspas obrigatórias: o espaço final do prefixo separa o app do nível (LOG/ERROR)
+      - "log_line_prefix=%m [%p] user=%u db=%d client=%h app=%a "
+      - -c
+      - log_connections=on
+      - -c
+      - log_disconnections=on
+      - -c
+      - log_statement=all
+      - -c
+      - log_min_error_statement=error
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks:
+      reefed-lab: {ipv4_address: 10.250.77.10}
+
+  pg-agent:
+    build: {context: .., dockerfile: lab/agent/Dockerfile}
+    image: reefed-lab-agent:local
+    hostname: reefed-lab-postgres
+    restart: unless-stopped
+    logging: *logging
+    environment:
+      WAZUH_MANAGER_SERVER: wazuh.manager
+      WAZUH_AGENT_NAME: lab-postgres
+      WAZUH_AGENT_GROUP: linux,database,postgresql
+      WAZUH_REGISTRATION_PASSWORD: ${REEFED_ENROLLMENT_PASSWORD:?rode ./setup.sh e exporte a senha}
+      REEFED_LAB_DB: postgresql
+    volumes:
+      - pg_data:/var/lib/postgresql/data:ro
+    networks: [reefed_default]
+    depends_on: [postgres]
+
+  # ------------------------------------------------------------- MySQL
+  mysql:
+    image: mysql:8.4
+    hostname: lab-mysql
+    restart: unless-stopped
+    logging: *logging
+    # /var/log/mysql precisa existir e pertencer ao mysql antes do servidor subir.
+    entrypoint: ["bash", "-c", "mkdir -p /var/log/mysql && chown mysql:mysql /var/log/mysql && exec /usr/local/bin/docker-entrypoint.sh mysqld"]
+    environment:
+      MYSQL_ROOT_PASSWORD: mysql-lab
+    volumes:
+      - my_data:/var/lib/mysql
+      - my_log:/var/log/mysql
+      - my_confd:/etc/mysql/conf.d
+      - ../agents/database/mysql/reefed.cnf:/etc/mysql/conf.d/reefed.cnf:ro
+      - ./mysql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks:
+      reefed-lab: {ipv4_address: 10.250.77.11}
+
+  my-agent:
+    image: reefed-lab-agent:local
+    hostname: reefed-lab-mysql
+    restart: unless-stopped
+    logging: *logging
+    environment:
+      WAZUH_MANAGER_SERVER: wazuh.manager
+      WAZUH_AGENT_NAME: lab-mysql
+      WAZUH_AGENT_GROUP: linux,database,mysql
+      WAZUH_REGISTRATION_PASSWORD: ${REEFED_ENROLLMENT_PASSWORD:?rode ./setup.sh e exporte a senha}
+      REEFED_LAB_DB: mysql
+    volumes:
+      - my_data:/var/lib/mysql:ro
+      - my_log:/var/log/mysql:ro
+      - my_confd:/etc/mysql/conf.d:ro
+    networks: [reefed_default]
+    depends_on: [mysql, pg-agent]
+
+  # ------------------------------------------------------------- MariaDB
+  mariadb:
+    image: mariadb:11.4
+    hostname: lab-mariadb
+    restart: unless-stopped
+    logging: *logging
+    entrypoint: ["bash", "-c", "mkdir -p /var/log/mysql && chown mysql:mysql /var/log/mysql && exec /usr/local/bin/docker-entrypoint.sh mariadbd"]
+    environment:
+      MARIADB_ROOT_PASSWORD: mariadb-lab
+    volumes:
+      - maria_data:/var/lib/mysql
+      - maria_log:/var/log/mysql
+      - maria_confd:/etc/mysql/conf.d
+      - ../agents/database/mariadb/reefed.cnf:/etc/mysql/conf.d/reefed.cnf:ro
+      - ./mariadb/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks:
+      reefed-lab: {ipv4_address: 10.250.77.12}
+
+  maria-agent:
+    image: reefed-lab-agent:local
+    hostname: reefed-lab-mariadb
+    restart: unless-stopped
+    logging: *logging
+    environment:
+      WAZUH_MANAGER_SERVER: wazuh.manager
+      WAZUH_AGENT_NAME: lab-mariadb
+      WAZUH_AGENT_GROUP: linux,database,mariadb
+      WAZUH_REGISTRATION_PASSWORD: ${REEFED_ENROLLMENT_PASSWORD:?rode ./setup.sh e exporte a senha}
+      REEFED_LAB_DB: mariadb
+    volumes:
+      - maria_data:/var/lib/mysql:ro
+      - maria_log:/var/log/mysql:ro
+      - maria_confd:/etc/mysql/conf.d:ro
+    networks: [reefed_default]
+    depends_on: [mariadb, my-agent]
+
+  # ------------------------------------------------------------- App e atacante
+  # Rodam sob demanda (perfil "attack"): o app gera tráfego normal e sai, depois
+  # o atacante roda os ataques. Os dois ficam na rede do laboratório (IP fixo) e
+  # na rede do Reefed (para falar com a API).
+  app:
+    <<: *runner
+    profiles: [attack]
+    command: ["app.py"]
+    environment: &runner-env
+      PG_HOST: 10.250.77.10
+      MYSQL_HOST: 10.250.77.11
+      MARIADB_HOST: 10.250.77.12
+      REEFED_API: http://reefed-api:8000
+      REEFED_API_KEY: ${REEFED_API_KEY:?rode ./setup.sh e exporte a chave}
+      MOCK_URL: http://mock-alerts:8080
+    networks:
+      reefed-lab: {ipv4_address: 10.250.77.20}
+      reefed_default: {}
+
+  attacker:
+    <<: *runner
+    profiles: [attack]
+    command: ["attack.py", "all"]
+    environment: *runner-env
+    # Lê/escreve os arquivos dos bancos para os testes de FIM, skip-grant e log apagado.
+    volumes:
+      - pg_data:/pg-data
+      - my_confd:/mysql-confd
+      - my_log:/mysql-log
+    networks:
+      reefed-lab: {ipv4_address: 10.250.77.66}
+      reefed_default: {}
+    depends_on:
+      app: {condition: service_completed_successfully}
+
+  validator:
+    <<: *runner
+    profiles: [validate]
+    command: ["validate.py"]
+    environment:
+      <<: *runner-env
+      # hora (ISO 8601) em que o ataque começou; o "make lab-attack" grava e o
+      # "make lab-validate" passa. Vazio = últimos 40 minutos.
+      REEFED_LAB_SINCE: ${REEFED_LAB_SINCE:-}
+    networks: [reefed_default]
+
+networks:
+  reefed_default:
+    external: true
+  reefed-lab:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.250.77.0/24
+
+volumes:
+  pg_data:
+  my_data:
+  my_log:
+  my_confd:
+  maria_data:
+  maria_log:
+  maria_confd:

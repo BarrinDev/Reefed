@@ -1,0 +1,63 @@
+<!--
+  Reefed - firewall e Active Response (IDs 110250-110299)
+
+  Os bloqueios do firewall do Linux (UFW, iptables, firewalld) chegam pelo kernel,
+  e os do Windows pelo pfirewall.log. As regras 4100/4101 do Wazuh não geram
+  alerta para eles. Aqui o Reefed alerta quando o bloqueio é na porta de um banco
+  e quando a mesma origem insiste.
+
+  As regras 110260 e 110261 descrevem em português o resultado do Active
+  Response (bloqueio e desbloqueio do IP que fez força bruta no banco).
+-->
+
+<!-- Portas dos bancos (PostgreSQL, MySQL/MariaDB e X Protocol do MySQL) -->
+<var name="REEFED_DB_PORTS">^(?:5432|3306|33060)$</var>
+
+<group name="reefed,firewall,">
+
+  <rule id="110250" level="3">
+    <if_sid>4100</if_sid>
+    <action type="pcre2">(?i)block|drop|reject|deny</action>
+    <dstport type="pcre2">$REEFED_DB_PORTS</dstport>
+    <description>Reefed: firewall bloqueou conexão de $(srcip) na porta do banco ($(dstport)/$(protocol)).</description>
+    <group>reefed_firewall,reefed_fw_block,firewall_drop,pci_dss_1.4,gdpr_IV_35.7.d,hipaa_164.312.a.1,nist_800_53_SC.7,tsc_CC6.7,tsc_CC6.8,</group>
+  </rule>
+
+  <!-- Bloqueios com ação DROP (iptables com prefixo DROP e o pfirewall.log do Windows)
+       passam antes pela 4101 do Wazuh, que tem nível maior e não grava alerta. -->
+  <rule id="110252" level="3">
+    <if_sid>4101</if_sid>
+    <dstport type="pcre2">$REEFED_DB_PORTS</dstport>
+    <description>Reefed: firewall bloqueou conexão de $(srcip) na porta do banco ($(dstport)/$(protocol)).</description>
+    <group>reefed_firewall,reefed_fw_block,firewall_drop,pci_dss_1.4,gdpr_IV_35.7.d,hipaa_164.312.a.1,nist_800_53_SC.7,tsc_CC6.7,tsc_CC6.8,</group>
+  </rule>
+
+  <!-- Mesma origem insistindo nas portas do banco: varredura ou força bruta barrada no firewall -->
+  <rule id="110251" level="10" frequency="10" timeframe="120">
+    <if_matched_group>reefed_fw_block</if_matched_group>
+    <same_srcip />
+    <description>Reefed: $(srcip) insistindo nas portas do banco (10 bloqueios do firewall em 2 min).</description>
+    <mitre>
+      <id>T1046</id>
+    </mitre>
+    <group>reefed_firewall,multiple_drops,pci_dss_1.4,pci_dss_10.6.1,gdpr_IV_35.7.d,hipaa_164.312.a.1,hipaa_164.312.b,nist_800_53_SC.7,nist_800_53_AU.6,tsc_CC6.7,tsc_CC6.8,tsc_CC7.2,tsc_CC7.3,</group>
+  </rule>
+
+  <!-- Active Response: 651 firewall-drop, 655 route-null, 657 outros (netsh no Windows) -->
+  <rule id="110260" level="8">
+    <if_sid>651, 655, 657</if_sid>
+    <field name="command">^add$</field>
+    <field name="parameters.alert.rule.id" type="pcre2">^110\d{3}$</field>
+    <description>Reefed: IP $(parameters.alert.data.srcip) bloqueado no servidor de banco pelo Active Response (regra $(parameters.alert.rule.id)).</description>
+    <group>reefed_active_response,active_response,</group>
+  </rule>
+
+  <rule id="110261" level="3">
+    <if_sid>652, 656, 657</if_sid>
+    <field name="command">^delete$</field>
+    <field name="parameters.alert.rule.id" type="pcre2">^110\d{3}$</field>
+    <description>Reefed: bloqueio do IP $(parameters.alert.data.srcip) expirou (Active Response).</description>
+    <group>reefed_active_response,active_response,</group>
+  </rule>
+
+</group>

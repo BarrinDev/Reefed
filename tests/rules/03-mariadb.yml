@@ -1,0 +1,94 @@
+# Gerado a partir de logs reais do PostgreSQL 17, MySQL 8.4 e MariaDB 11.4 (e variações).
+# Formato descrito em tests/run_tests.py.
+name: 'MariaDB: server_audit'
+cases:
+- name: Login local aceito
+  when: business_hours
+  log: 20261022 13:12:51,eb55bd62697b,root,localhost,3,0,CONNECT,mysql,,0
+  expect:
+    decoder: reefed-mariadb-audit
+    rule: 110103
+    level: 3
+    fields:
+      dstuser: root
+      db.client: localhost
+      db.name: mysql
+    absent_fields:
+    - srcip
+    groups:
+    - authentication_success
+- name: Login fora do horário
+  when: off_hours
+  log: 20261022 13:12:51,eb55bd62697b,root,localhost,3,0,CONNECT,mysql,,0
+  expect:
+    rule: 110900
+- name: Senha errada
+  log: 20261022 13:13:24,eb55bd62697b,root,172.18.0.5,4,0,FAILED_CONNECT,,,1045
+  expect:
+    rule: 110104
+    level: 5
+    fields:
+      dstuser: root
+      srcip: 172.18.0.5
+      db.retcode: '1045'
+    mitre:
+    - T1110.001
+    groups:
+    - authentication_failed
+- name: Login sem permissão no banco (1044)
+  log: 20261022 14:05:10,dbserver,app,10.20.0.17,9,0,FAILED_CONNECT,,,1044
+  expect:
+    rule: 110105
+    level: 5
+- name: Troca de usuário na sessão
+  when: business_hours
+  log: 20261022 14:05:10,dbserver,relatorio,localhost,9,0,CHANGEUSER,loja,,0
+  expect:
+    rule: 110106
+    level: 3
+    fields:
+      dstuser: relatorio
+- name: Consulta comum não alerta
+  log: 20261022 14:05:10,dbserver,app,10.20.0.17,9,28,QUERY,loja,'SELECT id FROM pedidos WHERE id = 7',0
+  expect:
+    no_alert: true
+    rule: 110102
+- name: Campos da consulta
+  log: 20261022 14:05:10,dbserver,app,10.20.0.17,9,28,QUERY,loja,'SELECT id FROM pedidos WHERE id = 7',0
+  expect:
+    rule: 110102
+    alert: false
+    fields:
+      db.query: SELECT id FROM pedidos WHERE id = 7
+      dstuser: app
+      srcip: 10.20.0.17
+      db.name: loja
+      db.retcode: '0'
+- name: Aspas escapadas pelo plugin de auditoria
+  log: 20261022 14:05:10,dbserver,app,10.20.0.17,9,28,QUERY,loja,'SELECT * FROM clientes WHERE nome = \'Ana\'',0
+  expect:
+    rule: 110102
+    alert: false
+    fields:
+      db.query: SELECT * FROM clientes WHERE nome = \'Ana\'
+- name: Permissão negada (1142)
+  log: 20261022 14:05:10,dbserver,app,10.20.0.17,9,28,QUERY,loja,'SELECT * FROM rh.salarios',1142
+  expect:
+    rule: 110107
+    level: 4
+    groups:
+    - access_denied
+- name: Tabela inexistente conta como erro de sondagem
+  log: 20261022 14:05:10,dbserver,app,10.20.0.17,9,28,QUERY,loja,'SELECT * FROM segredos',1146
+  expect:
+    rule: 110312
+    level: 2
+    alert: false
+- name: Leitura de tabela (READ) não alerta
+  log: 20261022 14:05:10,dbserver,app,10.20.0.17,9,28,READ,loja,clientes,0
+  expect:
+    no_alert: true
+- name: Desconexão não alerta
+  log: 20261022 14:05:10,dbserver,app,10.20.0.17,9,0,DISCONNECT,loja,,0
+  expect:
+    no_alert: true

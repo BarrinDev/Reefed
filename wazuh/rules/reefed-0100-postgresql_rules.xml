@@ -1,0 +1,159 @@
+<!--
+  Reefed - regras base do PostgreSQL (IDs 110000-110049)
+
+  Classificam os eventos do decoder reefed-postgresql. As detecções que valem para
+  qualquer banco (SQL injection, DDL destrutivo, privilégios, exportação...) ficam
+  nos arquivos reefed-0200 em diante e se penduram nos grupos definidos aqui:
+
+    reefed_query        comando SQL executado (log_statement = all)
+    reefed_dberror      erro de SQL devolvido ao cliente
+    reefed_login_ok     login aceito         (+ authentication_success do Wazuh)
+    reefed_login_fail   login recusado       (+ authentication_failed do Wazuh)
+    reefed_session      nova sessão aberta (regras de horário e IP desconhecido)
+    reefed_denied       permissão negada em um objeto do banco
+
+  Linhas STATEMENT/DETAIL/HINT só dão contexto à mensagem anterior e não alertam.
+  Atenção à ordem: no Wazuh, regras irmãs de nível 0 são testadas antes das demais.
+-->
+
+<group name="reefed,database,postgresql,">
+
+  <rule id="110000" level="0">
+    <decoded_as>reefed-postgresql</decoded_as>
+    <description>Reefed: evento do PostgreSQL.</description>
+  </rule>
+
+  <!-- Comandos SQL registrados por log_statement -->
+  <rule id="110001" level="0">
+    <if_sid>110000</if_sid>
+    <field name="db.query">\.</field>
+    <description>Reefed: comando SQL executado no PostgreSQL por $(dstuser).</description>
+    <group>reefed_query,</group>
+  </rule>
+
+  <!-- Erros de SQL. As linhas STATEMENT que acompanham o erro são só contexto. -->
+  <rule id="110002" level="0">
+    <if_sid>110000</if_sid>
+    <field name="db.severity">^ERROR$</field>
+    <description>Reefed: erro de SQL no PostgreSQL: $(db.message)</description>
+    <group>reefed_dberror,</group>
+  </rule>
+
+  <rule id="110003" level="0">
+    <if_sid>110000</if_sid>
+    <field name="db.severity">^STATEMENT$|^DETAIL$|^HINT$|^CONTEXT$|^QUERY$|^LOCATION$</field>
+    <description>Reefed: contexto de uma mensagem anterior do PostgreSQL.</description>
+  </rule>
+
+  <!-- Autenticação -->
+  <rule id="110005" level="3">
+    <if_sid>110000</if_sid>
+    <field name="db.message">^connection authorized: </field>
+    <description>Reefed: login no PostgreSQL (usuário $(dstuser), banco $(db.name), origem $(db.client)).</description>
+    <mitre>
+      <id>T1078</id>
+    </mitre>
+    <group>authentication_success,reefed_login_ok,reefed_session,pci_dss_10.2.5,gdpr_IV_32.2,hipaa_164.312.b,nist_800_53_AU.14,nist_800_53_AC.7,tsc_CC6.8,tsc_CC7.2,tsc_CC7.3,</group>
+  </rule>
+
+  <rule id="110006" level="5">
+    <if_sid>110000</if_sid>
+    <field name="db.severity">^FATAL$</field>
+    <field name="db.message" type="pcre2">^(?:password authentication failed for user|no pg_hba\.conf entry for host|pg_hba\.conf rejects connection for host|(?:Ident|Peer|LDAP|RADIUS|certificate|GSSAPI|SSPI|PAM|BSD) authentication failed for user|role "[^"]*" does not exist)</field>
+    <description>Reefed: falha de login no PostgreSQL (usuário $(dstuser), origem $(db.client)).</description>
+    <mitre>
+      <id>T1110.001</id>
+    </mitre>
+    <group>authentication_failed,reefed_login_fail,pci_dss_10.2.4,pci_dss_10.2.5,gdpr_IV_35.7.d,gdpr_IV_32.2,hipaa_164.312.b,nist_800_53_AU.14,nist_800_53_AC.7,tsc_CC6.1,tsc_CC6.8,tsc_CC7.2,tsc_CC7.3,</group>
+  </rule>
+
+  <rule id="110007" level="4">
+    <if_sid>110000</if_sid>
+    <field name="db.severity">^FATAL$</field>
+    <field name="db.message" type="pcre2">^database "[^"]*" does not exist</field>
+    <description>Reefed: conexão a um banco inexistente no PostgreSQL ($(db.name), origem $(db.client)).</description>
+    <group>reefed_recon,</group>
+  </rule>
+
+  <rule id="110008" level="4">
+    <if_sid>110002</if_sid>
+    <field name="db.message" type="pcre2">^permission denied (?:for|to) </field>
+    <description>Reefed: permissão negada no PostgreSQL para $(dstuser): $(db.message)</description>
+    <group>reefed_denied,access_denied,</group>
+  </rule>
+
+  <rule id="110017" level="5">
+    <if_sid>110000</if_sid>
+    <field name="db.severity">^FATAL$</field>
+    <field name="db.message" type="pcre2">^permission denied for database</field>
+    <description>Reefed: $(dstuser) tentou conectar sem permissão no banco $(db.name) do PostgreSQL (origem $(db.client)).</description>
+    <group>reefed_denied,access_denied,</group>
+  </rule>
+
+  <rule id="110009" level="7">
+    <if_sid>110000</if_sid>
+    <field name="db.message" type="pcre2">^(?:sorry, too many clients already|too many connections for (?:role|database))</field>
+    <description>Reefed: limite de conexões do PostgreSQL atingido ($(db.message)).</description>
+    <mitre>
+      <id>T1499</id>
+    </mitre>
+    <group>reefed_service,service_availability,</group>
+  </rule>
+
+  <!-- Ciclo de vida do servidor e configuração -->
+  <rule id="110010" level="3">
+    <if_sid>110000</if_sid>
+    <field name="db.message">^database system is ready to accept connections</field>
+    <description>Reefed: PostgreSQL iniciado e aceitando conexões.</description>
+    <group>reefed_service,</group>
+  </rule>
+
+  <rule id="110011" level="7">
+    <if_sid>110000</if_sid>
+    <field name="db.message" type="pcre2">^received (?:smart|fast|immediate) shutdown request</field>
+    <description>Reefed: PostgreSQL recebeu um pedido de desligamento ($(db.message)).</description>
+    <mitre>
+      <id>T1489</id>
+    </mitre>
+    <group>reefed_service,service_availability,</group>
+  </rule>
+
+  <rule id="110012" level="10">
+    <if_sid>110000</if_sid>
+    <field name="db.severity">^PANIC$</field>
+    <description>Reefed: PostgreSQL entrou em PANIC: $(db.message)</description>
+    <group>reefed_service,service_availability,</group>
+  </rule>
+
+  <rule id="110013" level="10">
+    <if_sid>110000</if_sid>
+    <field name="db.message" type="pcre2">was terminated by signal|terminating any other active server processes</field>
+    <description>Reefed: processo do PostgreSQL terminou de forma anormal: $(db.message)</description>
+    <group>reefed_service,service_availability,</group>
+  </rule>
+
+  <rule id="110014" level="3">
+    <if_sid>110000</if_sid>
+    <field name="db.message">^received SIGHUP, reloading configuration files</field>
+    <description>Reefed: PostgreSQL recarregou os arquivos de configuração.</description>
+    <group>reefed_config,</group>
+  </rule>
+
+  <rule id="110015" level="3">
+    <if_sid>110000</if_sid>
+    <field name="db.message" type="pcre2">^parameter "[^"]+" changed to </field>
+    <description>Reefed: parâmetro do PostgreSQL alterado: $(db.message)</description>
+    <group>reefed_config,</group>
+  </rule>
+
+  <rule id="110016" level="12">
+    <if_sid>110015</if_sid>
+    <field name="db.message" type="pcre2">^parameter "(?:log_\w+|logging_collector|pgaudit\.\w+|shared_preload_libraries)" changed to</field>
+    <description>Reefed: configuração de log/auditoria do PostgreSQL alterada: $(db.message)</description>
+    <mitre>
+      <id>T1562.001</id>
+    </mitre>
+    <group>reefed_tamper,</group>
+  </rule>
+
+</group>

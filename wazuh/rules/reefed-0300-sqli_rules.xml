@@ -1,0 +1,138 @@
+<!--
+  Reefed - SQL injection vista de dentro do banco (IDs 110300-110349)
+
+  As regras olham o comando SQL que chegou ao banco (campo db.query) e valem para
+  PostgreSQL, MySQL e MariaDB (grupo reefed_query). Como o banco recebe o comando
+  já montado pela aplicação, aqui aparece o ataque que passou pela aplicação.
+
+  As expressões aceitam aspas escapadas (\') porque o server_audit do MariaDB grava
+  o comando assim. O banco só registra comandos que conseguiu interpretar; os que
+  dão erro de sintaxe aparecem nas regras de erro (110310 em diante).
+
+  Regras irmãs são testadas da maior para a menor, então um comando que combina
+  com mais de um padrão fica com o alerta mais grave.
+-->
+
+<group name="reefed,database,reefed_sqli,attack,">
+
+  <!-- Fecha a string, termina o comando e emenda outro, comentando o resto -->
+  <rule id="110300" level="14">
+    <if_group>reefed_query</if_group>
+    <field name="db.query" type="pcre2">(?i)\\?['"]\s*\)*\s*;\s*(?:drop|truncate|delete|update|insert|alter|create|grant|revoke|shutdown|copy|exec(?:ute)?|select)\b.*?(?:--|#|/\*)</field>
+    <description>Reefed: SQL injection com comando empilhado (stacked query) vindo de $(db.client), usuário $(dstuser).</description>
+    <mitre>
+      <id>T1190</id>
+      <id>T1059</id>
+    </mitre>
+    <group>pci_dss_6.5,pci_dss_11.4,pci_dss_6.5.1,gdpr_IV_35.7.d,nist_800_53_SA.11,nist_800_53_SI.4,tsc_CC6.6,tsc_CC7.1,tsc_CC8.1,tsc_CC6.1,tsc_CC6.8,tsc_CC7.2,tsc_CC7.3,</group>
+  </rule>
+
+  <!-- ' OR '1'='1, OR 1=1, ' OR ''=', ' OR TRUE -->
+  <rule id="110301" level="12">
+    <if_group>reefed_query</if_group>
+    <field name="db.query" type="pcre2">(?i)\\?['"]\s*\)*\s*(?:or|\|\|)\s+(?:\(?\s*\\?['"]?(\w+)\\?['"]?\s*(?:=|like)\s*\\?['"]?\1\b|(?:\\?['"]){2}\s*=\s*\\?['"]|(?:true|1)\s*(?:--|#|/\*|;|$))|\bor\s+\(?\s*(\d+)\s*=\s*\2\b</field>
+    <description>Reefed: SQL injection por tautologia (OR 1=1) vinda de $(db.client), usuário $(dstuser).</description>
+    <mitre>
+      <id>T1190</id>
+    </mitre>
+    <group>pci_dss_6.5,pci_dss_11.4,pci_dss_6.5.1,gdpr_IV_35.7.d,nist_800_53_SA.11,nist_800_53_SI.4,tsc_CC6.6,tsc_CC7.1,tsc_CC8.1,tsc_CC6.1,tsc_CC6.8,tsc_CC7.2,tsc_CC7.3,</group>
+  </rule>
+
+  <!-- UNION SELECT NULL,NULL / 1,2,3 / @@version / tabelas do catálogo e de senhas -->
+  <rule id="110302" level="12">
+    <if_group>reefed_query</if_group>
+    <field name="db.query" type="pcre2">(?i)\bunion(?:\s+all|\s+distinct)?\s+(?:\(\s*)?select\s+(?:(?:null|\d+|0x[0-9a-f]+|@@\w+|(?:char|concat|version|user|database|schema)\s*\(|current_user)\s*(?:,|\bfrom\b|--|#|/\*|;|\)|$)|.*?\bfrom\s+(?:information_schema|pg_catalog|pg_shadow|pg_authid|pg_user|pg_roles|mysql\.)|.*?\b(?:authentication_string|rolpassword|passwd)\b)</field>
+    <description>Reefed: SQL injection com UNION SELECT vinda de $(db.client), usuário $(dstuser).</description>
+    <mitre>
+      <id>T1190</id>
+    </mitre>
+    <group>pci_dss_6.5,pci_dss_11.4,pci_dss_6.5.1,gdpr_IV_35.7.d,nist_800_53_SA.11,nist_800_53_SI.4,tsc_CC6.6,tsc_CC7.1,tsc_CC8.1,tsc_CC6.1,tsc_CC6.8,tsc_CC7.2,tsc_CC7.3,</group>
+  </rule>
+
+  <!-- Blind por tempo: SLEEP, pg_sleep, BENCHMARK, WAITFOR DELAY -->
+  <rule id="110303" level="10">
+    <if_group>reefed_query</if_group>
+    <field name="db.query" type="pcre2">(?i)\b(?:sleep\s*\(\s*\d|pg_sleep(?:_for|_until)?\s*\(|benchmark\s*\(\s*\d+\s*,|waitfor\s+delay\s+\\?'|dbms_lock\.sleep\s*\(|dbms_pipe\.receive_message\s*\()</field>
+    <description>Reefed: possível SQL injection por tempo (sleep/benchmark) vinda de $(db.client), usuário $(dstuser).</description>
+    <mitre>
+      <id>T1190</id>
+    </mitre>
+    <group>pci_dss_6.5,pci_dss_11.4,pci_dss_6.5.1,gdpr_IV_35.7.d,nist_800_53_SA.11,nist_800_53_SI.4,tsc_CC6.6,tsc_CC7.1,tsc_CC8.1,tsc_CC6.1,tsc_CC6.8,tsc_CC7.2,tsc_CC7.3,</group>
+  </rule>
+
+  <!-- Baseada em erro: extractvalue, updatexml, floor(rand(0)*2), CAST((SELECT ...) AS int) -->
+  <rule id="110304" level="10">
+    <if_group>reefed_query</if_group>
+    <field name="db.query" type="pcre2">(?i)\b(?:extractvalue|updatexml)\s*\(|\bfloor\s*\(\s*rand\s*\(\s*0?\s*\)\s*\*\s*2\s*\)|\bexp\s*\(\s*~\s*\(|\bgtid_subset\s*\(|\bcast\s*\(\s*\(\s*select\b.{0,120}?\)\s*as\s+(?:int|integer|numeric|signed|bigint)\b</field>
+    <description>Reefed: SQL injection baseada em erro vinda de $(db.client), usuário $(dstuser).</description>
+    <mitre>
+      <id>T1190</id>
+    </mitre>
+    <group>pci_dss_6.5,pci_dss_11.4,pci_dss_6.5.1,gdpr_IV_35.7.d,nist_800_53_SA.11,nist_800_53_SI.4,tsc_CC6.6,tsc_CC7.1,tsc_CC8.1,tsc_CC6.1,tsc_CC6.8,tsc_CC7.2,tsc_CC7.3,</group>
+  </rule>
+
+  <!-- Usuário admin' seguido de comentário SQL (dois hífens ou #): o comentário corta o resto do comando original -->
+  <rule id="110305" level="10">
+    <if_group>reefed_query</if_group>
+    <field name="db.query" type="pcre2">(?i)\\?['"]\s*\)*\s*(?:--|#).*?\\?['"]</field>
+    <description>Reefed: SQL injection com comentário cortando o comando vinda de $(db.client), usuário $(dstuser).</description>
+    <mitre>
+      <id>T1190</id>
+    </mitre>
+    <group>pci_dss_6.5,pci_dss_11.4,pci_dss_6.5.1,gdpr_IV_35.7.d,nist_800_53_SA.11,nist_800_53_SI.4,tsc_CC6.6,tsc_CC7.1,tsc_CC8.1,tsc_CC6.1,tsc_CC6.8,tsc_CC7.2,tsc_CC7.3,</group>
+  </rule>
+
+  <!-- Ofuscação típica de ferramentas: CHAR(97,100,...), chr()||chr(), hex longo, /*!50000UNION*/ -->
+  <rule id="110306" level="8">
+    <if_group>reefed_query</if_group>
+    <field name="db.query" type="pcre2">(?i)\b(?:char|chr)\s*\(\s*\d+\s*(?:,\s*\d+\s*){3,}\)|(?:\bchr\s*\(\s*\d+\s*\)\s*\|\|\s*){3,}|\bconcat(?:_ws)?\s*\(\s*0x[0-9a-f]+|\b0x(?:[0-9a-f]{2}){16,}|/\*!\d{5}\s*(?:union|select|and|or|from|where)\b</field>
+    <description>Reefed: comando SQL ofuscado (CHAR/hex/comentário de versão) vindo de $(db.client), usuário $(dstuser).</description>
+    <mitre>
+      <id>T1190</id>
+      <id>T1027</id>
+    </mitre>
+    <group>pci_dss_6.5,pci_dss_11.4,pci_dss_6.5.1,gdpr_IV_35.7.d,nist_800_53_SA.11,nist_800_53_SI.4,tsc_CC6.6,tsc_CC7.1,tsc_CC8.1,</group>
+  </rule>
+
+</group>
+
+<!-- Sondagem: erros de SQL contados por origem -->
+<group name="reefed,database,">
+
+  <!-- Erros típicos de quem está sondando a injeção (sintaxe quebrada, coluna inexistente,
+       UNION com número de colunas diferente, tabela inexistente). Nível 2: não gera alerta sozinho, só conta.
+       Cada regra fica presa a uma única regra-mãe (if_sid) de propósito: com if_group ela
+       apareceria uma vez por banco na árvore de regras e o Wazuh guardaria cada erro
+       várias vezes na contagem da 110315, que dispararia antes do 5º erro. -->
+  <rule id="110310" level="2">
+    <if_sid>110002</if_sid>
+    <field name="db.message" type="pcre2">(?i)^(?:syntax error at or near|unterminated quoted (?:string|identifier)|unterminated dollar-quoted string|invalid input syntax for|(?:column|relation) "[^"]*" does not exist|each UNION query must have the same number of columns|ORDER BY position \d+ is not in select list|operator does not exist|argument of (?:WHERE|AND|OR) must be type boolean|division by zero)</field>
+    <description>Reefed: erro de SQL típico de sondagem no PostgreSQL ($(db.message)).</description>
+    <group>reefed_sqlerr,</group>
+  </rule>
+
+  <rule id="110311" level="2">
+    <if_sid>110071</if_sid>
+    <field name="db.errno" type="pcre2">^(?:1054|1064|1105|1146|1222|1241|1267|1271|1367|1690|3141)$</field>
+    <description>Reefed: erro de SQL típico de sondagem no MySQL (erro $(db.errno)).</description>
+    <group>reefed_sqlerr,</group>
+  </rule>
+
+  <rule id="110312" level="2">
+    <if_sid>110101</if_sid>
+    <field name="db.retcode" type="pcre2">^(?:1054|1064|1105|1146|1222|1241|1267|1271|1367|1690|3141)$</field>
+    <description>Reefed: erro de SQL típico de sondagem no MariaDB (erro $(db.retcode)).</description>
+    <group>reefed_sqlerr,</group>
+  </rule>
+
+  <rule id="110315" level="10" frequency="5" timeframe="120">
+    <if_matched_group>reefed_sqlerr</if_matched_group>
+    <same_field>db.client</same_field>
+    <description>Reefed: muitos erros de SQL vindos de $(db.client) em 2 minutos (possível sondagem de SQL injection).</description>
+    <mitre>
+      <id>T1190</id>
+    </mitre>
+    <group>reefed_sqlprobe,attack,pci_dss_6.5,pci_dss_11.4,pci_dss_6.5.1,gdpr_IV_35.7.d,nist_800_53_SA.11,nist_800_53_SI.4,tsc_CC6.6,tsc_CC7.1,tsc_CC8.1,</group>
+  </rule>
+
+</group>

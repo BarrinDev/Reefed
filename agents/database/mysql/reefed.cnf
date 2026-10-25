@@ -1,0 +1,31 @@
+# Reefed - logs do MySQL 8.x no formato que o Reefed entende.
+#
+# Onde colocar:
+#   Debian/Ubuntu: /etc/mysql/mysql.conf.d/reefed.cnf
+#   RHEL:          /etc/my.cnf.d/reefed.cnf
+#   Windows:       no my.ini, seção [mysqld], com os caminhos da pasta Data (veja
+#                  docs/agentes.md)
+# Crie a pasta dos logs antes de reiniciar:
+#   sudo install -d -o mysql -g mysql -m 750 /var/log/mysql
+# Depois: sudo systemctl restart mysql   (ou mysqld)
+#
+# Custo: o slow log com long_query_time = 0 e o general log gravam todos os
+# comandos. Em servidor com muito movimento, acompanhe o espaço em disco e o
+# logrotate (o pacote do MySQL já traz um para /var/log/mysql).
+
+[mysqld]
+# Falhas de login ("Access denied", MY-010926) só aparecem com verbosidade 3
+log_error                 = /var/log/mysql/error.log
+log_error_verbosity       = 3
+
+# Um registro por comando, com usuário, IP, código de erro e linhas devolvidas
+slow_query_log            = ON
+slow_query_log_file       = /var/log/mysql/slow.log
+long_query_time           = 0
+log_slow_extra            = ON
+log_slow_admin_statements = ON
+
+# Novas sessões (linhas Connect). O agente só lê essas linhas.
+general_log               = ON
+general_log_file          = /var/log/mysql/general.log
+log_output                = FILE

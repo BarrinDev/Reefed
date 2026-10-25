@@ -1,0 +1,71 @@
+<!--
+  Reefed - correlação de etapas de um ataque (IDs 110950-110999)
+
+  Cada regra liga dois alertas da mesma origem (db.client) dentro de uma janela de
+  tempo: o primeiro já aconteceu (if_matched_group) e o segundo é o evento atual
+  (if_group). São os alertas de maior nível do Reefed.
+-->
+
+<group name="reefed,database,reefed_attack_chain,">
+
+  <rule id="110950" level="14" frequency="2" timeframe="600">
+    <if_group>reefed_destructive</if_group>
+    <if_matched_group>reefed_sqli</if_matched_group>
+    <same_field>db.client</same_field>
+    <description>Reefed: SQL injection seguida de comando destrutivo a partir de $(db.client) (usuário $(dstuser)).</description>
+    <mitre>
+      <id>T1190</id>
+      <id>T1485</id>
+    </mitre>
+    <group>attack,pci_dss_6.5.1,pci_dss_10.2.7,pci_dss_11.4,gdpr_IV_35.7.d,gdpr_IV_32.2,nist_800_53_SI.4,nist_800_53_AU.14,tsc_CC6.1,tsc_CC7.2,tsc_CC7.3,</group>
+  </rule>
+
+  <rule id="110951" level="14" frequency="2" timeframe="900">
+    <if_group>reefed_exfiltration</if_group>
+    <if_matched_group>reefed_sqli</if_matched_group>
+    <same_field>db.client</same_field>
+    <description>Reefed: SQL injection seguida de exportação de dados a partir de $(db.client) (usuário $(dstuser)).</description>
+    <mitre>
+      <id>T1190</id>
+      <id>T1213</id>
+    </mitre>
+    <group>attack,pci_dss_6.5.1,pci_dss_10.2.1,pci_dss_11.4,gdpr_IV_35.7.d,gdpr_IV_32.2,nist_800_53_SI.4,nist_800_53_AU.14,tsc_CC6.1,tsc_CC7.2,tsc_CC7.3,</group>
+  </rule>
+
+  <rule id="110952" level="15" frequency="2" timeframe="1800">
+    <if_group>reefed_privilege</if_group>
+    <if_matched_group>reefed_bruteforce</if_matched_group>
+    <same_field>db.client</same_field>
+    <description>Reefed: força bruta seguida de mudança de usuários/privilégios a partir de $(db.client) (usuário $(dstuser)): provável invasão.</description>
+    <mitre>
+      <id>T1110</id>
+      <id>T1098</id>
+    </mitre>
+    <group>attack,pci_dss_10.2.2,pci_dss_10.2.4,pci_dss_10.2.5,pci_dss_11.4,gdpr_IV_35.7.d,gdpr_IV_32.2,hipaa_164.312.b,nist_800_53_SI.4,nist_800_53_AC.2,nist_800_53_AU.14,tsc_CC6.1,tsc_CC6.8,tsc_CC7.2,tsc_CC7.3,</group>
+  </rule>
+
+  <rule id="110953" level="15" frequency="2" timeframe="1800">
+    <if_group>reefed_destructive</if_group>
+    <if_matched_group>reefed_bruteforce</if_matched_group>
+    <same_field>db.client</same_field>
+    <description>Reefed: força bruta seguida de comando destrutivo a partir de $(db.client) (usuário $(dstuser)): provável invasão.</description>
+    <mitre>
+      <id>T1110</id>
+      <id>T1485</id>
+    </mitre>
+    <group>attack,pci_dss_10.2.4,pci_dss_10.2.7,pci_dss_11.4,gdpr_IV_35.7.d,gdpr_IV_32.2,hipaa_164.312.b,nist_800_53_SI.4,nist_800_53_AU.14,tsc_CC6.1,tsc_CC6.8,tsc_CC7.2,tsc_CC7.3,</group>
+  </rule>
+
+  <rule id="110954" level="14" frequency="2" timeframe="1800">
+    <if_group>reefed_exfiltration</if_group>
+    <if_matched_group>reefed_bruteforce</if_matched_group>
+    <same_field>db.client</same_field>
+    <description>Reefed: força bruta seguida de exportação de dados a partir de $(db.client) (usuário $(dstuser)): provável invasão.</description>
+    <mitre>
+      <id>T1110</id>
+      <id>T1213</id>
+    </mitre>
+    <group>attack,pci_dss_10.2.1,pci_dss_10.2.4,pci_dss_11.4,gdpr_IV_35.7.d,gdpr_IV_32.2,hipaa_164.312.b,nist_800_53_SI.4,nist_800_53_AU.14,tsc_CC6.1,tsc_CC6.8,tsc_CC7.2,tsc_CC7.3,</group>
+  </rule>
+
+</group>

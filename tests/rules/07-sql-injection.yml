@@ -1,0 +1,166 @@
+# Gerado a partir de logs reais do PostgreSQL 17, MySQL 8.4 e MariaDB 11.4 (e variações).
+# Formato descrito em tests/run_tests.py.
+name: SQL injection e sondagem
+cases:
+- name: 'PostgreSQL: tautologia (OR 1=1)'
+  log: '2026-10-22 13:10:15.278 UTC [81] user=postgres db=postgres client=172.18.0.4 app=psql LOG:  statement: SELECT * FROM clientes WHERE nome = '''' OR ''1''=''1'';'
+  expect:
+    rule: 110301
+    level: 12
+    mitre:
+    - T1190
+    groups:
+    - attack
+    - reefed_sqli
+    fields:
+      srcip: 172.18.0.4
+- name: 'PostgreSQL: UNION SELECT em pg_shadow'
+  log: '2026-10-22 13:10:15.280 UTC [81] user=postgres db=postgres client=172.18.0.4 app=psql LOG:  statement: SELECT nome FROM clientes WHERE id = 1 UNION SELECT usename, passwd FROM pg_shadow;'
+  expect:
+    rule: 110302
+    level: 12
+- name: 'PostgreSQL: pg_sleep'
+  log: '2026-10-22 13:10:15.281 UTC [81] user=postgres db=postgres client=172.18.0.4 app=psql LOG:  statement: SELECT pg_sleep(0.1);'
+  expect:
+    rule: 110303
+    level: 10
+- name: 'PostgreSQL: comando empilhado'
+  log: '2026-10-22 14:05:10.120 UTC [4242] user=app db=loja client=10.20.0.15 app=psql LOG:  statement: SELECT * FROM produtos WHERE id = ''1''; DROP TABLE clientes; --'''
+  expect:
+    rule: 110300
+    level: 14
+    mitre:
+    - T1190
+    - T1059
+- name: 'PostgreSQL: erro forçado com CAST'
+  log: '2026-10-22 14:05:10.120 UTC [4242] user=app db=loja client=10.20.0.15 app=psql LOG:  statement: SELECT * FROM produtos WHERE id = 1 AND 1=CAST((SELECT senha FROM usuarios LIMIT 1) AS int)'
+  expect:
+    rule: 110304
+    level: 10
+- name: 'PostgreSQL: comentário cortando o resto do comando'
+  log: '2026-10-22 14:05:10.120 UTC [4242] user=app db=loja client=10.20.0.15 app=psql LOG:  statement: SELECT * FROM usuarios WHERE login = ''admin''-- '' AND senha = ''x'''
+  expect:
+    rule: 110305
+    level: 10
+- name: 'PostgreSQL: CHR() em cadeia'
+  log: '2026-10-22 14:05:10.120 UTC [4242] user=app db=loja client=10.20.0.15 app=psql LOG:  statement: SELECT * FROM produtos WHERE nome = CHR(97)||CHR(100)||CHR(109)||CHR(105)'
+  expect:
+    rule: 110306
+    level: 8
+    mitre:
+    - T1027
+- name: 'MySQL: tautologia'
+  log: '# Time: 2026-10-22T13:36:29.653144Z # User@Host: root[root] @  [172.18.0.5]  Id:    24 # Query_time: 0.000210  Lock_time: 0.000002 Rows_sent: 2  Rows_examined: 2 Thread_id: 24 Errno: 0 Killed: 0 Bytes_received: 56 Bytes_sent: 202 Read_first: 1 Read_last: 0 Read_key: 1 Read_next: 0 Read_prev: 0 Read_rnd: 0 Read_rnd_next: 3 Sort_merge_passes: 0 Sort_range_count: 0 Sort_rows: 0 Sort_scan_count: 0 Created_tmp_disk_tables: 0 Created_tmp_tables: 0 Start: 2026-10-22T13:36:29.652934Z End: 2026-10-22T13:36:29.653144Z SET timestamp=1792676189; SELECT * FROM clientes WHERE nome = '''' OR ''1''=''1'';'
+  expect:
+    rule: 110301
+    level: 12
+- name: 'MySQL: UNION SELECT em mysql.user'
+  log: '# Time: 2026-10-22T13:36:29.653859Z # User@Host: root[root] @  [172.18.0.5]  Id:    24 # Query_time: 0.000459  Lock_time: 0.000000 Rows_sent: 0  Rows_examined: 0 Thread_id: 24 Errno: 1222 Killed: 0 Bytes_received: 102 Bytes_sent: 74 Read_first: 0 Read_last: 0 Read_key: 0 Read_next: 0 Read_prev: 0 Read_rnd: 0 Read_rnd_next: 0 Sort_merge_passes: 0 Sort_range_count: 0 Sort_rows: 0 Sort_scan_count: 0 Created_tmp_disk_tables: 0 Created_tmp_tables: 0 Start: 2026-10-22T13:36:29.653400Z End: 2026-10-22T13:36:29.653859Z SET timestamp=1792676189; SELECT nome FROM clientes WHERE id = 1 UNION SELECT user, authentication_string FROM mysql.user;'
+  expect:
+    rule: 110302
+- name: 'MySQL: UNION SELECT NULL,NULL'
+  log: '# Time: 2026-10-22T13:36:29.654332Z # User@Host: root[root] @  [172.18.0.5]  Id:    24 # Query_time: 0.000199  Lock_time: 0.000000 Rows_sent: 0  Rows_examined: 0 Thread_id: 24 Errno: 1222 Killed: 0 Bytes_received: 68 Bytes_sent: 74 Read_first: 0 Read_last: 0 Read_key: 0 Read_next: 0 Read_prev: 0 Read_rnd: 0 Read_rnd_next: 0 Sort_merge_passes: 0 Sort_range_count: 0 Sort_rows: 0 Sort_scan_count: 0 Created_tmp_disk_tables: 0 Created_tmp_tables: 0 Start: 2026-10-22T13:36:29.654133Z End: 2026-10-22T13:36:29.654332Z SET timestamp=1792676189; SELECT nome FROM clientes WHERE id = 1 UNION SELECT NULL,NULL;'
+  expect:
+    rule: 110302
+- name: 'MySQL: SLEEP'
+  log: '# Time: 2026-10-22T13:36:29.755436Z # User@Host: root[root] @  [172.18.0.5]  Id:    24 # Query_time: 0.100395  Lock_time: 0.000000 Rows_sent: 1  Rows_examined: 1 Thread_id: 24 Errno: 0 Killed: 0 Bytes_received: 24 Bytes_sent: 58 Read_first: 0 Read_last: 0 Read_key: 0 Read_next: 0 Read_prev: 0 Read_rnd: 0 Read_rnd_next: 0 Sort_merge_passes: 0 Sort_range_count: 0 Sort_rows: 0 Sort_scan_count: 0 Created_tmp_disk_tables: 0 Created_tmp_tables: 0 Start: 2026-10-22T13:36:29.655041Z End: 2026-10-22T13:36:29.755436Z SET timestamp=1792676189; SELECT SLEEP(0.1);'
+  expect:
+    rule: 110303
+- name: 'MySQL: BENCHMARK'
+  log: '# Time: 2026-10-22T13:36:29.757391Z # User@Host: root[root] @  [172.18.0.5]  Id:    24 # Query_time: 0.001497  Lock_time: 0.000000 Rows_sent: 1  Rows_examined: 1 Thread_id: 24 Errno: 0 Killed: 0 Bytes_received: 39 Bytes_sent: 73 Read_first: 0 Read_last: 0 Read_key: 0 Read_next: 0 Read_prev: 0 Read_rnd: 0 Read_rnd_next: 0 Sort_merge_passes: 0 Sort_range_count: 0 Sort_rows: 0 Sort_scan_count: 0 Created_tmp_disk_tables: 0 Created_tmp_tables: 0 Start: 2026-10-22T13:36:29.755894Z End: 2026-10-22T13:36:29.757391Z SET timestamp=1792676189; SELECT BENCHMARK(1000, MD5(''a''));'
+  expect:
+    rule: 110303
+- name: 'MySQL: extractvalue'
+  log: '# Time: 2026-10-22T13:36:29.757964Z # User@Host: root[root] @  [172.18.0.5]  Id:    24 # Query_time: 0.000271  Lock_time: 0.000000 Rows_sent: 0  Rows_examined: 0 Thread_id: 24 Errno: 1105 Killed: 0 Bytes_received: 90 Bytes_sent: 42 Read_first: 0 Read_last: 0 Read_key: 0 Read_next: 0 Read_prev: 0 Read_rnd: 0 Read_rnd_next: 0 Sort_merge_passes: 0 Sort_range_count: 0 Sort_rows: 0 Sort_scan_count: 0 Created_tmp_disk_tables: 0 Created_tmp_tables: 0 Start: 2026-10-22T13:36:29.757693Z End: 2026-10-22T13:36:29.757964Z SET timestamp=1792676189; SELECT nome FROM clientes WHERE id = 1 AND extractvalue(1, concat(0x7e, version()));'
+  expect:
+    rule: 110304
+- name: 'MySQL: comentário de versão (/*!50000 UNION*/)'
+  log: '# Time: 2026-10-22T14:05:10.654784Z # User@Host: app[app] @  [10.20.0.16]  Id:    31 # Query_time: 0.000200  Lock_time: 0.000000 Rows_sent: 0  Rows_examined: 0 Thread_id: 31 Errno: 0 Killed: 0 Bytes_received: 43 Bytes_sent: 49 Read_first: 0 Read_last: 0 Read_key: 0 Read_next: 0 Read_prev: 0 Read_rnd: 0 Read_rnd_next: 0 Sort_merge_passes: 0 Sort_range_count: 0 Sort_rows: 0 Sort_scan_count: 0 Created_tmp_disk_tables: 0 Created_tmp_tables: 0 Start: 2026-10-22T14:05:10.654584Z End: 2026-10-22T14:05:10.654784Z SET timestamp=1792680310; SELECT nome FROM produtos WHERE id = 1 /*!50000UNION*/ SELECT 1,2;'
+  expect:
+    rule: 110306
+- name: 'MySQL: CHAR() com vários códigos'
+  log: '# Time: 2026-10-22T14:05:10.654784Z # User@Host: app[app] @  [10.20.0.16]  Id:    31 # Query_time: 0.000200  Lock_time: 0.000000 Rows_sent: 0  Rows_examined: 0 Thread_id: 31 Errno: 0 Killed: 0 Bytes_received: 43 Bytes_sent: 49 Read_first: 0 Read_last: 0 Read_key: 0 Read_next: 0 Read_prev: 0 Read_rnd: 0 Read_rnd_next: 0 Sort_merge_passes: 0 Sort_range_count: 0 Sort_rows: 0 Sort_scan_count: 0 Created_tmp_disk_tables: 0 Created_tmp_tables: 0 Start: 2026-10-22T14:05:10.654584Z End: 2026-10-22T14:05:10.654784Z SET timestamp=1792680310; SELECT * FROM usuarios WHERE login = CHAR(97,100,109,105,110);'
+  expect:
+    rule: 110306
+- name: 'MariaDB: tautologia com aspas escapadas'
+  log: 20261022 14:05:10,dbserver,app,10.20.0.17,9,28,QUERY,loja,'SELECT * FROM clientes WHERE nome = \'\' OR \'1\'=\'1\'',0
+  expect:
+    rule: 110301
+- name: 'MariaDB: UNION com erro de colunas'
+  log: 20261022 14:05:10,dbserver,app,10.20.0.17,9,28,QUERY,loja,'SELECT nome FROM clientes WHERE id = 1 UNION SELECT 1,2',1222
+  expect:
+    rule: 110302
+- name: 'MariaDB: comando empilhado'
+  log: 20261022 14:05:10,dbserver,app,10.20.0.17,9,28,QUERY,loja,'SELECT * FROM produtos WHERE id = \'1\'; DELETE FROM clientes; -- \'',0
+  expect:
+    rule: 110300
+- name: 'Sem falso positivo: aspas dobradas legítimas'
+  log: '2026-10-22 14:05:10.120 UTC [4242] user=app db=loja client=10.20.0.15 app=psql LOG:  statement: SELECT * FROM clientes WHERE nome = ''O''''Brien'';'
+  expect:
+    no_alert: true
+- name: 'Sem falso positivo: OR entre colunas'
+  log: '2026-10-22 14:05:10.120 UTC [4242] user=app db=loja client=10.20.0.15 app=psql LOG:  statement: SELECT id FROM pedidos WHERE status = ''pago'' OR status = ''enviado'';'
+  expect:
+    no_alert: true
+- name: 'Sem falso positivo: -- dentro de texto'
+  log: '2026-10-22 14:05:10.120 UTC [4242] user=app db=loja client=10.20.0.15 app=psql LOG:  statement: SELECT * FROM logs WHERE msg LIKE ''%--%'' AND id > 10;'
+  expect:
+    no_alert: true
+- name: 'Sem falso positivo: palavra union em texto'
+  log: '2026-10-22 14:05:10.120 UTC [4242] user=app db=loja client=10.20.0.15 app=psql LOG:  statement: UPDATE produtos SET nome = ''Union Select Co'' WHERE id = 3;'
+  expect:
+    no_alert: true
+- name: 'Sem falso positivo: comentário de código'
+  log: '# Time: 2026-10-22T14:05:10.654784Z # User@Host: app[app] @  [10.20.0.16]  Id:    31 # Query_time: 0.000200  Lock_time: 0.000000 Rows_sent: 0  Rows_examined: 0 Thread_id: 31 Errno: 0 Killed: 0 Bytes_received: 43 Bytes_sent: 49 Read_first: 0 Read_last: 0 Read_key: 0 Read_next: 0 Read_prev: 0 Read_rnd: 0 Read_rnd_next: 0 Sort_merge_passes: 0 Sort_range_count: 0 Sort_rows: 0 Sort_scan_count: 0 Created_tmp_disk_tables: 0 Created_tmp_tables: 0 Start: 2026-10-22T14:05:10.654584Z End: 2026-10-22T14:05:10.654784Z SET timestamp=1792680310; SELECT count(*) FROM pedidos WHERE id > 10 -- total;'
+  expect:
+    no_alert: true
+- name: Erro de SQL sozinho não alerta
+  log: '2026-10-22 13:10:15.387 UTC [81] user=postgres db=postgres client=172.18.0.4 app=psql ERROR:  syntax error at or near "cat" at character 97'
+  expect:
+    rule: 110310
+    level: 2
+    alert: false
+- name: 'PostgreSQL: 5 erros de SQL do mesmo IP em 2 minutos'
+  steps:
+  - log: '2026-10-22 13:10:15.280 UTC [81] user=postgres db=postgres client=172.18.0.4 app=psql ERROR:  each UNION query must have the same number of columns at character 53'
+    repeat: 4
+    expect:
+      rule: 110310
+  - log: '2026-10-22 13:10:15.387 UTC [81] user=postgres db=postgres client=172.18.0.4 app=psql ERROR:  syntax error at or near "cat" at character 97'
+    expect:
+      rule: 110315
+      level: 10
+      mitre:
+      - T1190
+      groups:
+      - reefed_sqlprobe
+- name: 'MySQL: 5 erros de SQL do mesmo IP'
+  steps:
+  - log: '# Time: 2026-10-22T13:36:29.654784Z # User@Host: root[root] @  [172.18.0.5]  Id:    24 # Query_time: 0.000200  Lock_time: 0.000000 Rows_sent: 0  Rows_examined: 0 Thread_id: 24 Errno: 1054 Killed: 0 Bytes_received: 43 Bytes_sent: 49 Read_first: 0 Read_last: 0 Read_key: 0 Read_next: 0 Read_prev: 0 Read_rnd: 0 Read_rnd_next: 0 Sort_merge_passes: 0 Sort_range_count: 0 Sort_rows: 0 Sort_scan_count: 0 Created_tmp_disk_tables: 0 Created_tmp_tables: 0 Start: 2026-10-22T13:36:29.654584Z End: 2026-10-22T13:36:29.654784Z SET timestamp=1792676189; SELECT nome FROM clientes ORDER BY 5;'
+    repeat: 4
+    expect:
+      rule: 110311
+  - log: '# Time: 2026-10-22T13:36:29.654784Z # User@Host: root[root] @  [172.18.0.5]  Id:    24 # Query_time: 0.000200  Lock_time: 0.000000 Rows_sent: 0  Rows_examined: 0 Thread_id: 24 Errno: 1054 Killed: 0 Bytes_received: 43 Bytes_sent: 49 Read_first: 0 Read_last: 0 Read_key: 0 Read_next: 0 Read_prev: 0 Read_rnd: 0 Read_rnd_next: 0 Sort_merge_passes: 0 Sort_range_count: 0 Sort_rows: 0 Sort_scan_count: 0 Created_tmp_disk_tables: 0 Created_tmp_tables: 0 Start: 2026-10-22T13:36:29.654584Z End: 2026-10-22T13:36:29.654784Z SET timestamp=1792676189; SELECT nome FROM clientes ORDER BY 5;'
+    expect:
+      rule: 110315
+      level: 10
+- name: 'MariaDB: 5 erros de SQL do mesmo IP'
+  steps:
+  - log: 20261022 14:05:10,dbserver,app,10.20.0.17,9,28,QUERY,loja,'SELECT nome FROM clientes ORDER BY 5',1054
+    repeat: 2
+  - log: 20261022 14:05:10,dbserver,app,10.20.0.17,9,28,QUERY,loja,'SELECT senha FROM clientes',1054
+  - log: 20261022 14:05:10,dbserver,app,10.20.0.17,9,28,QUERY,loja,'SELECT * FROM segredos',1146
+    expect:
+      rule: 110312
+  - log: 20261022 14:05:10,dbserver,app,10.20.0.17,9,28,QUERY,loja,'SELECT nome FROM clientes WHERE',1064
+    expect:
+      rule: 110315
+- name: Erros de IPs diferentes não somam
+  steps:
+  - log: '2026-10-22 14:05:10.120 UTC [4242] user=app db=loja client=10.60.0.1 app=psql ERROR:  syntax error at or near "x" at character 9'
+  - log: '2026-10-22 14:05:10.120 UTC [4242] user=app db=loja client=10.60.0.2 app=psql ERROR:  syntax error at or near "x" at character 9'
+  - log: '2026-10-22 14:05:10.120 UTC [4242] user=app db=loja client=10.60.0.3 app=psql ERROR:  syntax error at or near "x" at character 9'
+  - log: '2026-10-22 14:05:10.120 UTC [4242] user=app db=loja client=10.60.0.4 app=psql ERROR:  syntax error at or near "x" at character 9'
+  - log: '2026-10-22 14:05:10.120 UTC [4242] user=app db=loja client=10.60.0.5 app=psql ERROR:  syntax error at or near "x" at character 9'
+    expect:
+      rule: 110310

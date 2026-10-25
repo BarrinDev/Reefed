@@ -1,0 +1,34 @@
+---
+# Usuários internos do Wazuh indexer (OpenSearch).
+# O setup.sh gera config/wazuh_indexer/internal_users.yml a partir deste modelo,
+# trocando cada __HASH__ pelo bcrypt da senha correspondente do .env.
+#
+# Atenção: o indexer só lê este arquivo quando cria o índice de segurança, no
+# primeiro "docker compose up". Para trocar senhas depois, veja docs/operacao.md.
+
+_meta:
+  type: "internalusers"
+  config_version: 2
+
+# Administrador do indexer (senha INDEXER_PASSWORD). Usado pelo manager (Filebeat)
+# e pelo dashboard para criar índices e modelos.
+admin:
+  hash: "__ADMIN_HASH__"
+  reserved: true
+  backend_roles:
+  - "admin"
+  description: "Administrador do indexer"
+
+# Usuário interno do dashboard (senha DASHBOARD_PASSWORD).
+kibanaserver:
+  hash: "__KIBANASERVER_HASH__"
+  reserved: true
+  description: "Usuário interno do Wazuh dashboard"
+
+# Usuário somente leitura da API do Reefed (senha REEFED_API_INDEXER_PASSWORD).
+reefed_api:
+  hash: "__REEFED_API_HASH__"
+  reserved: false
+  backend_roles:
+  - "readall"
+  description: "API do Reefed: consulta de alertas (somente leitura)"

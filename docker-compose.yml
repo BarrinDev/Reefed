@@ -1,0 +1,204 @@
+# Reefed - SIEM para bancos de dados, baseado no Wazuh 4.14.9 (single-node).
+#
+# Antes do primeiro "docker compose up -d", rode ./setup.sh: ele cria o .env com
+# senhas aleatórias, os certificados TLS e os usuários do indexer.
+name: reefed
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  wazuh.manager:
+    image: wazuh/wazuh-manager:${WAZUH_VERSION:-4.14.9}
+    hostname: wazuh.manager
+    restart: unless-stopped
+    logging: *logging
+    ulimits:
+      nofile:
+        soft: 655360
+        hard: 655360
+    ports:
+      - "${REEFED_AGENT_PORT:-1514}:1514"          # agentes
+      - "${REEFED_ENROLL_PORT:-1515}:1515"         # registro de agentes
+      - "${REEFED_SYSLOG_PORT:-514}:514/udp"       # syslog de firewalls
+      - "${REEFED_WAZUH_API_BIND:-127.0.0.1}:55000:55000" # API do Wazuh (de fora, use a API do Reefed)
+    environment:
+      INDEXER_URL: https://wazuh.indexer:9200
+      INDEXER_USERNAME: admin
+      INDEXER_PASSWORD: ${INDEXER_PASSWORD:?rode ./setup.sh antes}
+      FILEBEAT_SSL_VERIFICATION_MODE: full
+      SSL_CERTIFICATE_AUTHORITIES: /etc/ssl/root-ca.pem
+      SSL_CERTIFICATE: /etc/ssl/filebeat.pem
+      SSL_KEY: /etc/ssl/filebeat.key
+      API_USERNAME: ${WAZUH_API_USER:-wazuh-wui}
+      API_PASSWORD: ${WAZUH_API_PASSWORD:?rode ./setup.sh antes}
+      TZ: ${REEFED_TZ:-America/Sao_Paulo}
+      # Regras de horário
+      REEFED_OFF_HOURS: ${REEFED_OFF_HOURS:-20:00 - 07:00}
+      REEFED_OFF_DAYS: ${REEFED_OFF_DAYS:-weekends}
+      # Agentes e Active Response
+      REEFED_ENROLLMENT_PASSWORD: ${REEFED_ENROLLMENT_PASSWORD:-}
+      REEFED_AR_ENABLED: ${REEFED_AR_ENABLED:-yes}
+      REEFED_AR_TIMEOUT: ${REEFED_AR_TIMEOUT:-600}
+      REEFED_AR_WHITELIST: ${REEFED_AR_WHITELIST:-}
+      REEFED_SYSLOG_ALLOWED_IPS: ${REEFED_SYSLOG_ALLOWED_IPS:-}
+      REEFED_VULN_DETECTION: ${REEFED_VULN_DETECTION:-no}
+      # Alertas
+      REEFED_DASHBOARD_URL: ${REEFED_DASHBOARD_URL:-}
+      REEFED_NOTIFY_GROUP: ${REEFED_NOTIFY_GROUP:-}
+      REEFED_ALERT_DEDUP_SECONDS: ${REEFED_ALERT_DEDUP_SECONDS:-600}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+      TELEGRAM_API_URL: ${TELEGRAM_API_URL:-}
+      REEFED_TELEGRAM_LEVEL: ${REEFED_TELEGRAM_LEVEL:-10}
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
+      REEFED_SLACK_LEVEL: ${REEFED_SLACK_LEVEL:-10}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_SECURITY: ${SMTP_SECURITY:-starttls}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      ALERT_EMAIL_TO: ${ALERT_EMAIL_TO:-}
+      REEFED_EMAIL_LEVEL: ${REEFED_EMAIL_LEVEL:-12}
+      REEFED_EMAIL_MAX_PER_HOUR: ${REEFED_EMAIL_MAX_PER_HOUR:-30}
+    volumes:
+      - wazuh_api_configuration:/var/ossec/api/configuration
+      - wazuh_etc:/var/ossec/etc
+      - wazuh_logs:/var/ossec/logs
+      - wazuh_queue:/var/ossec/queue
+      - wazuh_var_multigroups:/var/ossec/var/multigroups
+      - wazuh_integrations:/var/ossec/integrations
+      - wazuh_active_response:/var/ossec/active-response/bin
+      - wazuh_agentless:/var/ossec/agentless
+      - wazuh_wodles:/var/ossec/wodles
+      - filebeat_etc:/etc/filebeat
+      - filebeat_var:/var/lib/filebeat
+      - ./config/wazuh_indexer_ssl_certs/root-ca-manager.pem:/etc/ssl/root-ca.pem:ro
+      - ./config/wazuh_indexer_ssl_certs/wazuh.manager.pem:/etc/ssl/filebeat.pem:ro
+      - ./config/wazuh_indexer_ssl_certs/wazuh.manager-key.pem:/etc/ssl/filebeat.key:ro
+      - ./config/wazuh_manager:/reefed/manager:ro   # modelo do ossec.conf (entrypoint/10-reefed.sh)
+      - ./config/wazuh_manager/entrypoint:/entrypoint-scripts:ro
+      - ./wazuh:/reefed/wazuh:ro
+      - ./tests:/reefed/tests:ro
+
+  wazuh.indexer:
+    image: wazuh/wazuh-indexer:${WAZUH_VERSION:-4.14.9}
+    hostname: wazuh.indexer
+    restart: unless-stopped
+    logging: *logging
+    ports:
+      - "${REEFED_INDEXER_BIND:-127.0.0.1}:9200:9200"
+    environment:
+      OPENSEARCH_JAVA_OPTS: -Xms${REEFED_INDEXER_HEAP:-1g} -Xmx${REEFED_INDEXER_HEAP:-1g}
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+      - wazuh-indexer-data:/var/lib/wazuh-indexer
+      - ./config/wazuh_indexer_ssl_certs/root-ca.pem:/usr/share/wazuh-indexer/config/certs/root-ca.pem:ro
+      - ./config/wazuh_indexer_ssl_certs/wazuh.indexer-key.pem:/usr/share/wazuh-indexer/config/certs/wazuh.indexer.key:ro
+      - ./config/wazuh_indexer_ssl_certs/wazuh.indexer.pem:/usr/share/wazuh-indexer/config/certs/wazuh.indexer.pem:ro
+      - ./config/wazuh_indexer_ssl_certs/admin.pem:/usr/share/wazuh-indexer/config/certs/admin.pem:ro
+      - ./config/wazuh_indexer_ssl_certs/admin-key.pem:/usr/share/wazuh-indexer/config/certs/admin-key.pem:ro
+      - ./config/wazuh_indexer/wazuh.indexer.yml:/usr/share/wazuh-indexer/config/opensearch.yml:ro
+      - ./config/wazuh_indexer/internal_users.yml:/usr/share/wazuh-indexer/config/opensearch-security/internal_users.yml:ro
+
+  wazuh.dashboard:
+    image: wazuh/wazuh-dashboard:${WAZUH_VERSION:-4.14.9}
+    hostname: wazuh.dashboard
+    restart: unless-stopped
+    logging: *logging
+    ports:
+      - "${REEFED_DASHBOARD_PORT:-443}:5601"
+    environment:
+      INDEXER_USERNAME: admin
+      INDEXER_PASSWORD: ${INDEXER_PASSWORD:?rode ./setup.sh antes}
+      WAZUH_API_URL: https://wazuh.manager
+      DASHBOARD_USERNAME: kibanaserver
+      DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD:?rode ./setup.sh antes}
+      API_USERNAME: ${WAZUH_API_USER:-wazuh-wui}
+      API_PASSWORD: ${WAZUH_API_PASSWORD:?rode ./setup.sh antes}
+    volumes:
+      - ./config/wazuh_indexer_ssl_certs/wazuh.dashboard.pem:/usr/share/wazuh-dashboard/certs/wazuh-dashboard.pem:ro
+      - ./config/wazuh_indexer_ssl_certs/wazuh.dashboard-key.pem:/usr/share/wazuh-dashboard/certs/wazuh-dashboard-key.pem:ro
+      - ./config/wazuh_indexer_ssl_certs/root-ca.pem:/usr/share/wazuh-dashboard/certs/root-ca.pem:ro
+      - ./config/wazuh_dashboard/opensearch_dashboards.yml:/usr/share/wazuh-dashboard/config/opensearch_dashboards.yml:ro
+      - wazuh-dashboard-config:/usr/share/wazuh-dashboard/data/wazuh/config
+      - wazuh-dashboard-custom:/usr/share/wazuh-dashboard/plugins/wazuh/public/assets/custom
+    depends_on:
+      - wazuh.indexer
+      - wazuh.manager
+
+  # API do Reefed: o sistema que usa o banco consulta alertas/status e envia
+  # eventos da aplicação por aqui (veja docs/api.md).
+  reefed-api:
+    build: ./api
+    image: reefed-api:local
+    restart: unless-stopped
+    logging: *logging
+    ports:
+      - "${REEFED_API_BIND:-0.0.0.0}:${REEFED_API_PORT:-8000}:8000"
+    environment:
+      REEFED_API_KEY: ${REEFED_API_KEY:?rode ./setup.sh antes}
+      REEFED_API_READ_KEY: ${REEFED_API_READ_KEY:-}
+      INDEXER_URL: https://wazuh.indexer:9200
+      INDEXER_USERNAME: reefed_api
+      INDEXER_PASSWORD: ${REEFED_API_INDEXER_PASSWORD:?rode ./setup.sh antes}
+      INDEXER_CA: /certs/root-ca.pem
+      WAZUH_API_URL: https://wazuh.manager:55000
+      WAZUH_API_USER: ${WAZUH_API_USER:-wazuh-wui}
+      WAZUH_API_PASSWORD: ${WAZUH_API_PASSWORD:?rode ./setup.sh antes}
+      WAZUH_API_VERIFY_TLS: "false"
+      REEFED_CORS_ORIGINS: ${REEFED_CORS_ORIGINS:-}
+      REEFED_AR_TIMEOUT: ${REEFED_AR_TIMEOUT:-600}
+      TZ: ${REEFED_TZ:-America/Sao_Paulo}
+    volumes:
+      - ./config/wazuh_indexer_ssl_certs/root-ca.pem:/certs/root-ca.pem:ro
+    depends_on:
+      - wazuh.indexer
+      - wazuh.manager
+
+  # Roda a cada "up" e termina: instala o modelo de índice do Reefed no indexer, aplica
+  # a retenção dos alertas e importa os painéis do Reefed no dashboard
+  # (config/reefed-init/reefed_init.py).
+  # "make dashboards" roda de novo atualizando os painéis.
+  reefed-init:
+    image: reefed-api:local
+    restart: "no"
+    logging: *logging
+    command: ["python", "/reefed/init/reefed_init.py"]
+    environment:
+      INDEXER_URL: https://wazuh.indexer:9200
+      DASHBOARD_URL: https://wazuh.dashboard:5601
+      REEFED_ADMIN_USER: admin
+      REEFED_ADMIN_PASSWORD: ${INDEXER_PASSWORD:?rode ./setup.sh antes}
+      REEFED_CA: /certs/root-ca.pem
+      REEFED_RETENTION_DAYS: ${REEFED_RETENTION_DAYS:-0}
+    volumes:
+      - ./config/wazuh_indexer_ssl_certs/root-ca.pem:/certs/root-ca.pem:ro
+      - ./config/reefed-init:/reefed/init:ro
+      - ./dashboards:/reefed/dashboards:ro
+    depends_on:
+      - wazuh.indexer
+      - wazuh.dashboard
+
+volumes:
+  wazuh_api_configuration:
+  wazuh_etc:
+  wazuh_logs:
+  wazuh_queue:
+  wazuh_var_multigroups:
+  wazuh_integrations:
+  wazuh_active_response:
+  wazuh_agentless:
+  wazuh_wodles:
+  filebeat_etc:
+  filebeat_var:
+  wazuh-indexer-data:
+  wazuh-dashboard-config:
+  wazuh-dashboard-custom:

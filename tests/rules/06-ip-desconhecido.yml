@@ -1,0 +1,69 @@
+# Gerado a partir de logs reais do PostgreSQL 17, MySQL 8.4 e MariaDB 11.4 (e variações).
+# Formato descrito em tests/run_tests.py.
+name: Acesso ao banco a partir de IP desconhecido
+cases:
+- name: 'PostgreSQL: usuário comum de IP desconhecido'
+  when: in_hours
+  log: '2026-10-22 14:05:10.120 UTC [4242] user=app db=loja client=10.50.0.5 app=[unknown] LOG:  connection authorized: user=app database=loja application_name=psql'
+  expect:
+    rule: 110210
+    level: 10
+    fields:
+      srcip: 10.50.0.5
+    mitre:
+    - T1078
+    groups:
+    - reefed_unknown_ip
+- name: 'PostgreSQL: conta administrativa de IP desconhecido'
+  when: in_hours
+  log: '2026-10-22 14:05:10.120 UTC [4242] user=postgres db=loja client=10.50.0.5 app=[unknown] LOG:  connection authorized: user=postgres database=loja application_name=psql'
+  expect:
+    rule: 110211
+    level: 12
+    mitre:
+    - T1078.001
+- name: 'Fora do horário: usuário comum de IP desconhecido'
+  when: off_hours
+  log: '2026-10-22 14:05:10.120 UTC [4242] user=app db=loja client=10.50.0.5 app=[unknown] LOG:  connection authorized: user=app database=loja application_name=psql'
+  expect:
+    rule: 110902
+    level: 12
+- name: 'Fora do horário: conta administrativa de IP desconhecido'
+  when: off_hours
+  log: '2026-10-22 14:05:10.120 UTC [4242] user=postgres db=loja client=10.50.0.5 app=[unknown] LOG:  connection authorized: user=postgres database=loja application_name=psql'
+  expect:
+    rule: 110903
+    level: 13
+- name: IP confiável não é desconhecido
+  log: '2026-10-22 14:05:10.120 UTC [4242] user=app db=loja client=127.0.0.1 app=[unknown] LOG:  connection authorized: user=app database=loja application_name=psql'
+  expect:
+    not_rule:
+    - 110210
+    - 110211
+    - 110902
+    - 110903
+- name: Conexão local (socket) não é desconhecida
+  log: '2026-10-22 13:09:23.091 UTC [58] user=postgres db=postgres client=[local] app=[unknown] LOG:  connection authorized: user=postgres database=postgres application_name=psql'
+  expect:
+    not_rule:
+    - 110210
+    - 110211
+    - 110902
+    - 110903
+- name: 'MySQL: conexão de IP desconhecido (general log)'
+  when: in_hours
+  log: "2026-10-22T14:05:10.954731Z\t    9 Connect\tapp@10.50.0.6 on loja using TCP/IP"
+  expect:
+    rule: 110210
+    fields:
+      srcip: 10.50.0.6
+      dstuser: app
+- name: 'MariaDB: root de IP desconhecido'
+  when: in_hours
+  log: 20261022 14:05:10,dbserver,root,10.50.0.7,9,0,CONNECT,loja,,0
+  expect:
+    rule: 110211
+- name: Falha de login não conta como acesso
+  log: '2026-10-22 14:05:10.120 UTC [4242] user=app db=loja client=10.50.0.8 app=[unknown] FATAL:  password authentication failed for user "app"'
+  expect:
+    rule: 110006

@@ -1,0 +1,73 @@
+{
+  "order": 1,
+  "index_patterns": [
+    "wazuh-alerts-4.x-*",
+    "wazuh-archives-4.x-*"
+  ],
+  "mappings": {
+    "dynamic_templates": [
+      {
+        "string_as_keyword": {
+          "match_mapping_type": "string",
+          "mapping": {
+            "type": "keyword",
+            "ignore_above": 8191
+          }
+        }
+      }
+    ],
+    "properties": {
+      "data": {
+        "properties": {
+          "db": {
+            "properties": {
+              "query": {
+                "type": "keyword",
+                "ignore_above": 8191,
+                "fields": {
+                  "text": {
+                    "type": "text"
+                  }
+                }
+              },
+              "message": {
+                "type": "keyword",
+                "ignore_above": 8191,
+                "fields": {
+                  "text": {
+                    "type": "text"
+                  }
+                }
+              }
+            }
+          },
+          "reefed": {
+            "properties": {
+              "message": {
+                "type": "keyword",
+                "ignore_above": 8191,
+                "fields": {
+                  "text": {
+                    "type": "text"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "previous_output": {
+        "type": "keyword",
+        "ignore_above": 8191
+      },
+      "syscheck": {
+        "properties": {
+          "diff": {
+            "type": "keyword",
+            "ignore_above": 8191
+          }
+        }
+      }
+    }
+  }
+}

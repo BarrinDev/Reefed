@@ -1,0 +1,8 @@
+#!/bin/sh
+# Reefed - o integratord do Wazuh chama este arquivo; ele roda o script .py de
+# mesmo nome com o Python que vem com o Wazuh (que já tem o módulo requests).
+WAZUH_PATH="$(cd "$(dirname "$0")/.." && pwd -P)"
+# Evita SIGILL ao importar o cryptography em algumas VMs ARM (mesmo ajuste do Wazuh)
+OPENSSL_armcap=0
+export OPENSSL_armcap
+exec "$WAZUH_PATH/framework/python/bin/python3" "$0.py" "$@"

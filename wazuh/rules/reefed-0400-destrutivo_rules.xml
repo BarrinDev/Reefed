@@ -1,0 +1,170 @@
+<!--
+  Reefed - comandos destrutivos e DDL (IDs 110400-110449)
+
+  DROP, TRUNCATE, DELETE/UPDATE sem WHERE e alterações de estrutura. Valem para
+  PostgreSQL, MySQL e MariaDB (grupo reefed_query).
+
+  O nível sobe quando quem executa não está na lista de administradores
+  (etc/lists/reefed/db-admins). Fora do horário comercial o nível sobe de novo
+  (regras 110904 e 110905, no arquivo de horário).
+
+  "Enviado" e não "executado": o PostgreSQL registra o comando antes de rodar. O
+  resultado aparece em seguida (linha ERROR no PostgreSQL, db.errno no MySQL e
+  db.retcode no MariaDB).
+-->
+
+<group name="reefed,database,">
+
+  <rule id="110400" level="12">
+    <if_group>reefed_query</if_group>
+    <field name="db.query" type="pcre2">(?i)(?:^|;)\s*(?:/\*(?!!).*?\*/\s*)*drop\s+(?:database|schema)\b</field>
+    <description>Reefed: DROP DATABASE/SCHEMA enviado por $(dstuser) (origem $(db.client)).</description>
+    <mitre>
+      <id>T1485</id>
+    </mitre>
+    <group>reefed_destructive,pci_dss_10.2.7,gdpr_IV_32.2,hipaa_164.312.c.1,nist_800_53_AU.14,nist_800_53_SI.7,tsc_CC6.1,tsc_CC7.2,tsc_A1.2,</group>
+  </rule>
+
+  <rule id="110401" level="8">
+    <if_group>reefed_query</if_group>
+    <field name="db.query" type="pcre2">(?i)(?:^|;)\s*(?:/\*(?!!).*?\*/\s*)*drop\s+table\b</field>
+    <description>Reefed: DROP TABLE enviado por $(dstuser) (origem $(db.client)).</description>
+    <mitre>
+      <id>T1485</id>
+    </mitre>
+    <group>reefed_destructive,pci_dss_10.2.7,gdpr_IV_32.2,hipaa_164.312.c.1,nist_800_53_AU.14,nist_800_53_SI.7,tsc_CC6.1,tsc_CC7.2,tsc_A1.2,</group>
+  </rule>
+
+  <rule id="110402" level="8">
+    <if_group>reefed_query</if_group>
+    <field name="db.query" type="pcre2">(?i)(?:^|;)\s*(?:/\*(?!!).*?\*/\s*)*truncate\b(?!\s*\()</field>
+    <description>Reefed: TRUNCATE enviado por $(dstuser) (origem $(db.client)).</description>
+    <mitre>
+      <id>T1485</id>
+    </mitre>
+    <group>reefed_destructive,pci_dss_10.2.7,gdpr_IV_32.2,hipaa_164.312.c.1,nist_800_53_AU.14,nist_800_53_SI.7,tsc_CC6.1,tsc_CC7.2,tsc_A1.2,</group>
+  </rule>
+
+  <!-- DELETE sem WHERE (ou com WHERE 1=1 / true) -->
+  <rule id="110403" level="9">
+    <if_group>reefed_query</if_group>
+    <field name="db.query" type="pcre2">(?i)(?:^|;)\s*(?:/\*(?!!).*?\*/\s*)*delete\s+from\s+[\w."`\[\]]+(?:\s+(?:as\s+)?\w+)?(?:\s+where\s+(?:1\s*=\s*1|true|1|\\?'1\\?'\s*=\s*\\?'1\\?'))?\s*;?\s*$</field>
+    <description>Reefed: DELETE sem WHERE (apaga a tabela inteira) enviado por $(dstuser) (origem $(db.client)).</description>
+    <mitre>
+      <id>T1485</id>
+    </mitre>
+    <group>reefed_destructive,pci_dss_10.2.7,gdpr_IV_32.2,hipaa_164.312.c.1,nist_800_53_AU.14,nist_800_53_SI.7,tsc_CC6.1,tsc_CC7.2,tsc_A1.2,</group>
+  </rule>
+
+  <!-- UPDATE sem WHERE: altera todas as linhas -->
+  <rule id="110404" level="7">
+    <if_group>reefed_query</if_group>
+    <field name="db.query" type="pcre2">(?i)(?:^|;)\s*(?:/\*(?!!).*?\*/\s*)*update\s+[\w."`\[\]]+(?:\s+(?:as\s+)?\w+)?\s+set\s+(?:(?!\bwhere\b).)*$</field>
+    <description>Reefed: UPDATE sem WHERE (altera a tabela inteira) enviado por $(dstuser) (origem $(db.client)).</description>
+    <mitre>
+      <id>T1565.001</id>
+    </mitre>
+    <group>reefed_destructive,pci_dss_10.2.7,gdpr_IV_32.2,hipaa_164.312.c.1,nist_800_53_AU.14,nist_800_53_SI.7,tsc_CC6.1,tsc_CC7.2,tsc_PI1.4,</group>
+  </rule>
+
+  <rule id="110405" level="7">
+    <if_group>reefed_query</if_group>
+    <field name="db.query" type="pcre2">(?i)(?:^|;)\s*(?:/\*(?!!).*?\*/\s*)*alter\s+table\b[^;]*\bdrop\b</field>
+    <description>Reefed: ALTER TABLE removendo coluna/restrição enviado por $(dstuser) (origem $(db.client)).</description>
+    <mitre>
+      <id>T1485</id>
+    </mitre>
+    <group>reefed_destructive,pci_dss_10.2.7,gdpr_IV_32.2,hipaa_164.312.c.1,nist_800_53_AU.14,tsc_CC7.2,tsc_CC8.1,</group>
+  </rule>
+
+  <!-- Mesmos comandos, enviados por quem não é administrador -->
+  <rule id="110420" level="14">
+    <if_sid>110400</if_sid>
+    <list field="user" lookup="not_match_key">etc/lists/reefed/db-admins</list>
+    <description>Reefed: DROP DATABASE/SCHEMA enviado por usuário que não é administrador ($(dstuser), origem $(db.client)).</description>
+    <mitre>
+      <id>T1485</id>
+    </mitre>
+    <group>reefed_destructive,reefed_non_admin,pci_dss_10.2.7,gdpr_IV_32.2,hipaa_164.312.c.1,nist_800_53_AU.14,nist_800_53_AC.6,tsc_CC6.1,tsc_CC7.2,tsc_A1.2,</group>
+  </rule>
+
+  <rule id="110421" level="12">
+    <if_sid>110401</if_sid>
+    <list field="user" lookup="not_match_key">etc/lists/reefed/db-admins</list>
+    <description>Reefed: DROP TABLE enviado por usuário que não é administrador ($(dstuser), origem $(db.client)).</description>
+    <mitre>
+      <id>T1485</id>
+    </mitre>
+    <group>reefed_destructive,reefed_non_admin,pci_dss_10.2.7,gdpr_IV_32.2,hipaa_164.312.c.1,nist_800_53_AU.14,nist_800_53_AC.6,tsc_CC6.1,tsc_CC7.2,tsc_A1.2,</group>
+  </rule>
+
+  <rule id="110422" level="12">
+    <if_sid>110402</if_sid>
+    <list field="user" lookup="not_match_key">etc/lists/reefed/db-admins</list>
+    <description>Reefed: TRUNCATE enviado por usuário que não é administrador ($(dstuser), origem $(db.client)).</description>
+    <mitre>
+      <id>T1485</id>
+    </mitre>
+    <group>reefed_destructive,reefed_non_admin,pci_dss_10.2.7,gdpr_IV_32.2,hipaa_164.312.c.1,nist_800_53_AU.14,nist_800_53_AC.6,tsc_CC6.1,tsc_CC7.2,tsc_A1.2,</group>
+  </rule>
+
+  <rule id="110423" level="12">
+    <if_sid>110403</if_sid>
+    <list field="user" lookup="not_match_key">etc/lists/reefed/db-admins</list>
+    <description>Reefed: DELETE sem WHERE enviado por usuário que não é administrador ($(dstuser), origem $(db.client)).</description>
+    <mitre>
+      <id>T1485</id>
+    </mitre>
+    <group>reefed_destructive,reefed_non_admin,pci_dss_10.2.7,gdpr_IV_32.2,hipaa_164.312.c.1,nist_800_53_AU.14,nist_800_53_AC.6,tsc_CC6.1,tsc_CC7.2,tsc_A1.2,</group>
+  </rule>
+
+  <rule id="110424" level="10">
+    <if_sid>110404</if_sid>
+    <list field="user" lookup="not_match_key">etc/lists/reefed/db-admins</list>
+    <description>Reefed: UPDATE sem WHERE enviado por usuário que não é administrador ($(dstuser), origem $(db.client)).</description>
+    <mitre>
+      <id>T1565.001</id>
+    </mitre>
+    <group>reefed_destructive,reefed_non_admin,pci_dss_10.2.7,gdpr_IV_32.2,hipaa_164.312.c.1,nist_800_53_AU.14,nist_800_53_AC.6,tsc_CC6.1,tsc_CC7.2,tsc_PI1.4,</group>
+  </rule>
+
+  <rule id="110425" level="10">
+    <if_sid>110405</if_sid>
+    <list field="user" lookup="not_match_key">etc/lists/reefed/db-admins</list>
+    <description>Reefed: ALTER TABLE removendo coluna/restrição enviado por usuário que não é administrador ($(dstuser), origem $(db.client)).</description>
+    <mitre>
+      <id>T1485</id>
+    </mitre>
+    <group>reefed_destructive,reefed_non_admin,pci_dss_10.2.7,gdpr_IV_32.2,hipaa_164.312.c.1,nist_800_53_AU.14,nist_800_53_AC.6,tsc_CC7.2,tsc_CC8.1,</group>
+  </rule>
+
+  <!-- Outros objetos e DDL em geral: trilha de auditoria de mudanças de estrutura -->
+  <rule id="110406" level="5">
+    <if_group>reefed_query</if_group>
+    <field name="db.query" type="pcre2">(?i)(?:^|;)\s*(?:/\*(?!!).*?\*/\s*)*drop\s+(?:view|materialized\s+view|function|procedure|routine|sequence|index|event|type|domain|extension|tablespace|publication|subscription|server|foreign\s+table)\b</field>
+    <description>Reefed: objeto do banco removido por $(dstuser) (origem $(db.client)).</description>
+    <group>reefed_ddl,pci_dss_10.2.7,gdpr_IV_32.2,nist_800_53_AU.14,tsc_CC8.1,</group>
+  </rule>
+
+  <rule id="110407" level="3">
+    <if_group>reefed_query</if_group>
+    <field name="db.query" type="pcre2">(?i)(?:^|;)\s*(?:/\*(?!!).*?\*/\s*)*(?:create(?:\s+or\s+replace)?(?!\s+(?:temp|temporary)\b)|alter|drop(?!\s+(?:temp|temporary)\b)|rename|comment\s+on)\s+\w</field>
+    <description>Reefed: DDL (mudança de estrutura) enviado por $(dstuser) (origem $(db.client)).</description>
+    <group>reefed_ddl,pci_dss_10.2.7,gdpr_IV_32.2,nist_800_53_AU.14,tsc_CC8.1,</group>
+  </rule>
+
+  <rule id="110426" level="8">
+    <if_sid>110406</if_sid>
+    <list field="user" lookup="not_match_key">etc/lists/reefed/db-admins</list>
+    <description>Reefed: objeto do banco removido por usuário que não é administrador ($(dstuser), origem $(db.client)).</description>
+    <group>reefed_ddl,reefed_non_admin,pci_dss_10.2.7,gdpr_IV_32.2,nist_800_53_AU.14,nist_800_53_AC.6,tsc_CC8.1,</group>
+  </rule>
+
+  <rule id="110427" level="5">
+    <if_sid>110407</if_sid>
+    <list field="user" lookup="not_match_key">etc/lists/reefed/db-admins</list>
+    <description>Reefed: DDL enviado por usuário que não é administrador ($(dstuser), origem $(db.client)).</description>
+    <group>reefed_ddl,reefed_non_admin,pci_dss_10.2.7,gdpr_IV_32.2,nist_800_53_AU.14,nist_800_53_AC.6,tsc_CC8.1,</group>
+  </rule>
+
+</group>

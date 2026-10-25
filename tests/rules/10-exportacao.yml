@@ -1,0 +1,114 @@
+# Gerado a partir de logs reais do PostgreSQL 17, MySQL 8.4 e MariaDB 11.4 (e variações).
+# Formato descrito em tests/run_tests.py.
+name: Exportação e leitura em massa
+cases:
+- name: 'MySQL: SELECT ... INTO OUTFILE'
+  log: '# Time: 2026-10-22T13:36:29.758458Z # User@Host: root[root] @  [172.18.0.5]  Id:    24 # Query_time: 0.000226  Lock_time: 0.000003 Rows_sent: 0  Rows_examined: 0 Thread_id: 24 Errno: 1290 Killed: 0 Bytes_received: 62 Bytes_sent: 111 Read_first: 0 Read_last: 0 Read_key: 0 Read_next: 0 Read_prev: 0 Read_rnd: 0 Read_rnd_next: 0 Sort_merge_passes: 0 Sort_range_count: 0 Sort_rows: 0 Sort_scan_count: 0 Created_tmp_disk_tables: 0 Created_tmp_tables: 0 Start: 2026-10-22T13:36:29.758232Z End: 2026-10-22T13:36:29.758458Z SET timestamp=1792676189; SELECT * FROM clientes INTO OUTFILE ''/tmp/clientes.csv'';'
+  expect:
+    rule: 110600
+    level: 12
+    mitre:
+    - T1005
+    - T1074.001
+    groups:
+    - reefed_exfiltration
+- name: 'PostgreSQL: COPY para arquivo'
+  log: '2026-10-22 14:05:10.120 UTC [4242] user=postgres db=loja client=10.20.0.15 app=psql LOG:  statement: COPY clientes TO ''/tmp/clientes.csv'' WITH CSV;'
+  expect:
+    rule: 110601
+    level: 12
+- name: 'PostgreSQL: lo_export'
+  log: '2026-10-22 14:05:10.120 UTC [4242] user=postgres db=loja client=10.20.0.15 app=psql LOG:  statement: SELECT lo_export(16409, ''/tmp/dump.bin'');'
+  expect:
+    rule: 110601
+- name: COPY TO STDOUT (\copy do psql)
+  when: in_hours
+  log: '2026-10-22 13:10:37.855 UTC [103] user=postgres db=postgres client=172.18.0.4 app=psql LOG:  statement: COPY clientes TO STDOUT;'
+  expect:
+    rule: 110602
+    level: 7
+    mitre:
+    - T1213
+- name: COPY TO STDOUT fora do horário
+  when: off_hours
+  log: '2026-10-22 13:10:37.855 UTC [103] user=postgres db=postgres client=172.18.0.4 app=psql LOG:  statement: COPY clientes TO STDOUT;'
+  expect:
+    rule: 110908
+    level: 11
+- name: 'pg_dump: cada tabela copiada não alerta'
+  log: '2026-10-22 13:10:15.520 UTC [82] user=postgres db=postgres client=172.18.0.4 app=pg_dump LOG:  statement: COPY public.clientes (id, nome, cpf) TO stdout;'
+  expect:
+    no_alert: true
+    rule: 110630
+- name: pg_dump iniciado por administrador
+  when: in_hours
+  log: '2026-10-22 14:05:10.120 UTC [4242] user=postgres db=loja client=[local] app=[unknown] LOG:  connection authorized: user=postgres database=loja application_name=pg_dump'
+  expect:
+    rule: 110610
+    level: 8
+- name: pg_dump fora do horário
+  when: off_hours
+  log: '2026-10-22 14:05:10.120 UTC [4242] user=postgres db=loja client=[local] app=[unknown] LOG:  connection authorized: user=postgres database=loja application_name=pg_dump'
+  expect:
+    rule: 110908
+- name: pg_dump feito por quem não é administrador
+  log: '2026-10-22 14:05:10.120 UTC [4242] user=app db=loja client=[local] app=[unknown] LOG:  connection authorized: user=app database=loja application_name=pg_dump'
+  expect:
+    rule: 110612
+    level: 11
+- name: mysqldump iniciado
+  when: in_hours
+  log: '# Time: 2026-10-22T13:36:29.942032Z # User@Host: root[root] @  [172.18.0.5]  Id:    26 # Query_time: 0.003228  Lock_time: 0.000006 Rows_sent: 0  Rows_examined: 16 Thread_id: 26 Errno: 0 Killed: 0 Bytes_received: 608 Bytes_sent: 447 Read_first: 3 Read_last: 0 Read_key: 4 Read_next: 8 Read_prev: 0 Read_rnd: 0 Read_rnd_next: 9 Sort_merge_passes: 0 Sort_range_count: 0 Sort_rows: 0 Sort_scan_count: 1 Created_tmp_disk_tables: 0 Created_tmp_tables: 2 Start: 2026-10-22T13:36:29.938804Z End: 2026-10-22T13:36:29.942032Z SET timestamp=1792676189; SELECT LOGFILE_GROUP_NAME, FILE_NAME, TOTAL_EXTENTS, INITIAL_SIZE, ENGINE, EXTRA FROM INFORMATION_SCHEMA.FILES WHERE ENGINE = ''ndbcluster'' AND FILE_TYPE = ''UNDO LOG'' AND FILE_NAME IS NOT NULL AND LOGFILE_GROUP_NAME IS NOT NULL AND LOGFILE_GROUP_NAME IN (SELECT DISTINCT LOGFILE_GROUP_NAME FROM INFORMATION_SCHEMA.FILES WHERE ENGINE = ''ndbcluster'' AND FILE_TYPE = ''DATAFILE'' AND TABLESPACE_NAME IN (SELECT DISTINCT TABLESPACE_NAME FROM INFORMATION_SCHEMA.PARTITIONS WHERE TABLE_SCHEMA IN (''loja''))) GROUP BY LOGFILE_GROUP_NAME, FILE_NAME, ENGINE, TOTAL_EXTENTS, INITIAL_SIZE ORDER BY LOGFILE_GROUP_NAME;'
+  expect:
+    rule: 110611
+    level: 8
+- name: 'mysqldump: cada tabela lida não alerta'
+  log: '# Time: 2026-10-22T13:36:29.955710Z # User@Host: root[root] @  [172.18.0.5]  Id:    26 # Query_time: 0.000134  Lock_time: 0.000000 Rows_sent: 1  Rows_examined: 1 Thread_id: 26 Errno: 0 Killed: 0 Bytes_received: 49 Bytes_sent: 58 Read_first: 1 Read_last: 0 Read_key: 1 Read_next: 0 Read_prev: 0 Read_rnd: 0 Read_rnd_next: 2 Sort_merge_passes: 0 Sort_range_count: 0 Sort_rows: 0 Sort_scan_count: 0 Created_tmp_disk_tables: 0 Created_tmp_tables: 0 Start: 2026-10-22T13:36:29.955576Z End: 2026-10-22T13:36:29.955710Z SET timestamp=1792676189; SELECT /*!40001 SQL_NO_CACHE */ * FROM `t`;'
+  expect:
+    no_alert: true
+    rule: 110631
+- name: Consulta que devolveu 5.000 linhas
+  when: in_hours
+  log: '# Time: 2026-10-22T14:05:10.654784Z # User@Host: app[app] @  [10.20.0.16]  Id:    31 # Query_time: 0.000200  Lock_time: 0.000000 Rows_sent: 5000  Rows_examined: 5000 Thread_id: 31 Errno: 0 Killed: 0 Bytes_received: 43 Bytes_sent: 49 Read_first: 0 Read_last: 0 Read_key: 0 Read_next: 0 Read_prev: 0 Read_rnd: 0 Read_rnd_next: 0 Sort_merge_passes: 0 Sort_range_count: 0 Sort_rows: 0 Sort_scan_count: 0 Created_tmp_disk_tables: 0 Created_tmp_tables: 0 Start: 2026-10-22T14:05:10.654584Z End: 2026-10-22T14:05:10.654784Z SET timestamp=1792680310; SELECT * FROM clientes WHERE ativo = 1;'
+  expect:
+    rule: 110603
+    level: 7
+- name: Consulta que devolveu 200.000 linhas
+  log: '# Time: 2026-10-22T14:05:10.654784Z # User@Host: app[app] @  [10.20.0.16]  Id:    31 # Query_time: 0.000200  Lock_time: 0.000000 Rows_sent: 200000  Rows_examined: 200000 Thread_id: 31 Errno: 0 Killed: 0 Bytes_received: 43 Bytes_sent: 49 Read_first: 0 Read_last: 0 Read_key: 0 Read_next: 0 Read_prev: 0 Read_rnd: 0 Read_rnd_next: 0 Sort_merge_passes: 0 Sort_range_count: 0 Sort_rows: 0 Sort_scan_count: 0 Created_tmp_disk_tables: 0 Created_tmp_tables: 0 Start: 2026-10-22T14:05:10.654584Z End: 2026-10-22T14:05:10.654784Z SET timestamp=1792680310; SELECT * FROM clientes WHERE ativo = 1;'
+  expect:
+    rule: 110604
+    level: 11
+    mitre:
+    - T1030
+- name: Consulta que devolveu 999 linhas não alerta
+  log: '# Time: 2026-10-22T14:05:10.654784Z # User@Host: app[app] @  [10.20.0.16]  Id:    31 # Query_time: 0.000200  Lock_time: 0.000000 Rows_sent: 999  Rows_examined: 0 Thread_id: 31 Errno: 0 Killed: 0 Bytes_received: 43 Bytes_sent: 49 Read_first: 0 Read_last: 0 Read_key: 0 Read_next: 0 Read_prev: 0 Read_rnd: 0 Read_rnd_next: 0 Sort_merge_passes: 0 Sort_range_count: 0 Sort_rows: 0 Sort_scan_count: 0 Created_tmp_disk_tables: 0 Created_tmp_tables: 0 Start: 2026-10-22T14:05:10.654584Z End: 2026-10-22T14:05:10.654784Z SET timestamp=1792680310; SELECT * FROM clientes WHERE ativo = 1;'
+  expect:
+    no_alert: true
+- name: Várias consultas grandes do mesmo usuário em 5 minutos
+  when: in_hours
+  steps:
+  - log: '# Time: 2026-10-22T14:05:10.654784Z # User@Host: app[app] @  [10.20.0.16]  Id:    31 # Query_time: 0.000200  Lock_time: 0.000000 Rows_sent: 3000  Rows_examined: 0 Thread_id: 31 Errno: 0 Killed: 0 Bytes_received: 43 Bytes_sent: 49 Read_first: 0 Read_last: 0 Read_key: 0 Read_next: 0 Read_prev: 0 Read_rnd: 0 Read_rnd_next: 0 Sort_merge_passes: 0 Sort_range_count: 0 Sort_rows: 0 Sort_scan_count: 0 Created_tmp_disk_tables: 0 Created_tmp_tables: 0 Start: 2026-10-22T14:05:10.654584Z End: 2026-10-22T14:05:10.654784Z SET timestamp=1792680310; SELECT * FROM clientes WHERE id > 0;'
+    repeat: 4
+    expect:
+      rule: 110603
+  - log: '# Time: 2026-10-22T14:05:10.654784Z # User@Host: app[app] @  [10.20.0.16]  Id:    31 # Query_time: 0.000200  Lock_time: 0.000000 Rows_sent: 3000  Rows_examined: 0 Thread_id: 31 Errno: 0 Killed: 0 Bytes_received: 43 Bytes_sent: 49 Read_first: 0 Read_last: 0 Read_key: 0 Read_next: 0 Read_prev: 0 Read_rnd: 0 Read_rnd_next: 0 Sort_merge_passes: 0 Sort_range_count: 0 Sort_rows: 0 Sort_scan_count: 0 Created_tmp_disk_tables: 0 Created_tmp_tables: 0 Start: 2026-10-22T14:05:10.654584Z End: 2026-10-22T14:05:10.654784Z SET timestamp=1792680310; SELECT * FROM pedidos WHERE id > 0;'
+    expect:
+      rule: 110605
+      level: 10
+      mitre:
+      - T1119
+- name: Tabela inteira lida uma vez não alerta
+  log: '2026-10-22 14:05:10.120 UTC [4242] user=app db=loja client=10.20.0.15 app=psql LOG:  statement: SELECT * FROM clientes;'
+  expect:
+    rule: 110606
+    alert: false
+- name: Muitas tabelas inteiras lidas em 2 minutos
+  steps:
+  - log: '2026-10-22 14:05:10.120 UTC [4242] user=app db=loja client=10.20.0.15 app=psql LOG:  statement: SELECT * FROM clientes;'
+    repeat: 9
+    expect:
+      rule: 110606
+  - log: '2026-10-22 14:05:10.120 UTC [4242] user=app db=loja client=10.20.0.15 app=psql LOG:  statement: SELECT * FROM fornecedores ORDER BY id;'
+    expect:
+      rule: 110607
+      level: 10

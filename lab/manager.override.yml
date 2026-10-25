@@ -1,0 +1,38 @@
+# Reefed - laboratório: ajustes do manager para os testes.
+#
+# Usado pelo "make lab-up" junto com o docker-compose.yml principal:
+#   docker compose -f docker-compose.yml -f lab/manager.override.yml up -d
+#
+# Os alertas vão para o receptor falso (lab/mock-alerts) em vez de Telegram,
+# Slack e SMTP de verdade, o bloqueio do Active Response dura 2 minutos e
+# alertas repetidos são agrupados por 1 minuto (em produção, 10).
+services:
+  wazuh.manager:
+    # Listas do laboratório: só o app (10.250.77.20) é cliente confiável, para o
+    # atacante (10.250.77.66) cair como "IP desconhecido" e poder ser bloqueado.
+    volumes:
+      - ./lab/lists:/reefed/wazuh/lists:ro
+    environment:
+      TELEGRAM_BOT_TOKEN: "123456:lab-token"
+      TELEGRAM_CHAT_ID: "-100123456"
+      TELEGRAM_API_URL: http://mock-alerts:8080
+      SLACK_WEBHOOK_URL: http://mock-alerts:8080/slack/T000/B000/lab
+      SMTP_HOST: mock-alerts
+      SMTP_PORT: "2525"
+      SMTP_SECURITY: none
+      SMTP_USER: reefed@lab.local
+      SMTP_PASSWORD: lab
+      SMTP_FROM: reefed@lab.local
+      ALERT_EMAIL_TO: seguranca@lab.local
+      REEFED_TELEGRAM_LEVEL: "10"
+      REEFED_SLACK_LEVEL: "10"
+      REEFED_EMAIL_LEVEL: "12"
+      REEFED_EMAIL_MAX_PER_HOUR: "100"
+      # Janela curta para o laboratório poder ser repetido logo em seguida
+      REEFED_ALERT_DEDUP_SECONDS: "60"
+      REEFED_AR_TIMEOUT: "120"
+      REEFED_DASHBOARD_URL: https://localhost
+
+  reefed-api:
+    environment:
+      REEFED_AR_TIMEOUT: "120"

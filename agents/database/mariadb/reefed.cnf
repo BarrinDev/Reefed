@@ -1,0 +1,23 @@
+# Reefed - auditoria do MariaDB (plugin server_audit) no formato que o Reefed entende.
+#
+# Onde colocar:
+#   Debian/Ubuntu: /etc/mysql/mariadb.conf.d/90-reefed.cnf
+#   RHEL:          /etc/my.cnf.d/reefed.cnf
+#   Windows:       no my.ini da pasta data, com server_audit_file_path = server_audit.log
+# Crie a pasta do log antes de reiniciar:
+#   sudo install -d -o mysql -g mysql -m 750 /var/log/mysql
+# Depois: sudo systemctl restart mariadb
+
+[mariadb]
+plugin_load_add               = server_audit
+# Impede desligar o plugin com UNINSTALL PLUGIN enquanto o servidor roda
+server_audit                  = FORCE_PLUS_PERMANENT
+server_audit_logging          = ON
+# Logins (inclusive os que falharam), comandos e tabelas usadas
+server_audit_events           = CONNECT,QUERY,TABLE
+server_audit_output_type      = file
+server_audit_file_path        = /var/log/mysql/server_audit.log
+server_audit_file_rotate_size = 100000000
+server_audit_file_rotations   = 9
+# Comandos longos são cortados neste tamanho (padrão 1024)
+server_audit_query_log_limit  = 8192

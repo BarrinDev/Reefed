@@ -1,0 +1,156 @@
+# Gerado a partir de logs reais do PostgreSQL 17, MySQL 8.4 e MariaDB 11.4 (e variações).
+# Formato descrito em tests/run_tests.py.
+name: 'PostgreSQL: decoder e regras base'
+cases:
+- name: Login local aceito
+  when: business_hours
+  log: '2026-10-22 13:09:23.091 UTC [58] user=postgres db=postgres client=[local] app=[unknown] LOG:  connection authorized: user=postgres database=postgres application_name=psql'
+  expect:
+    decoder: reefed-postgresql
+    rule: 110005
+    level: 3
+    fields:
+      dstuser: postgres
+      db.name: postgres
+      db.client: '[local]'
+    absent_fields:
+    - srcip
+    mitre:
+    - T1078
+    groups:
+    - authentication_success
+- name: Login de IP confiável (lista trusted-db-clients)
+  when: business_hours
+  log: '2026-10-22 14:05:10.120 UTC [4242] user=app db=loja client=127.0.0.1 app=[unknown] LOG:  connection authorized: user=app database=loja application_name=psql'
+  expect:
+    rule: 110005
+    fields:
+      srcip: 127.0.0.1
+      dstuser: app
+      db.name: loja
+- name: Login fora do horário comercial
+  when: off_hours
+  log: '2026-10-22 13:09:23.091 UTC [58] user=postgres db=postgres client=[local] app=[unknown] LOG:  connection authorized: user=postgres database=postgres application_name=psql'
+  expect:
+    rule: 110900
+    level: 8
+    mitre:
+    - T1078
+- name: Login em dia sem expediente
+  when: off_day
+  log: '2026-10-22 13:09:23.091 UTC [58] user=postgres db=postgres client=[local] app=[unknown] LOG:  connection authorized: user=postgres database=postgres application_name=psql'
+  expect:
+    rule: 110901
+    level: 7
+- name: Senha errada
+  log: '2026-10-22 13:10:14.995 UTC [76] user=postgres db=postgres client=172.18.0.4 app=[unknown] FATAL:  password authentication failed for user "postgres"'
+  expect:
+    decoder: reefed-postgresql
+    rule: 110006
+    level: 5
+    fields:
+      dstuser: postgres
+      srcip: 172.18.0.4
+      db.client: 172.18.0.4
+    mitre:
+    - T1110.001
+    groups:
+    - authentication_failed
+- name: Senha errada para usuário inexistente
+  log: '2026-10-22 13:10:15.163 UTC [79] user=fantasma db=postgres client=172.18.0.4 app=[unknown] FATAL:  password authentication failed for user "fantasma"'
+  expect:
+    rule: 110006
+    fields:
+      dstuser: fantasma
+- name: Conexão recusada pelo pg_hba.conf
+  log: '2026-10-22 14:05:10.120 UTC [4242] user=app db=loja client=10.9.9.9 app=[unknown] FATAL:  no pg_hba.conf entry for host "10.9.9.9", user "app", database "loja", no encryption'
+  expect:
+    rule: 110006
+- name: Banco inexistente
+  log: '2026-10-22 13:10:15.218 UTC [80] user=postgres db=nao_existe client=172.18.0.4 app=[unknown] FATAL:  database "nao_existe" does not exist'
+  expect:
+    rule: 110007
+    level: 4
+    fields:
+      db.name: nao_existe
+- name: Permissão negada em tabela
+  log: '2026-10-22 14:05:10.120 UTC [4242] user=app db=loja client=10.20.0.15 app=psql ERROR:  permission denied for table salarios'
+  expect:
+    rule: 110008
+    level: 4
+    groups:
+    - access_denied
+- name: Permissão negada para conectar no banco
+  log: '2026-10-22 14:05:10.120 UTC [4242] user=app db=rh client=10.20.0.15 app=[unknown] FATAL:  permission denied for database "rh"'
+  expect:
+    rule: 110017
+    level: 5
+- name: Limite de conexões atingido
+  log: '2026-10-22 14:05:10.120 UTC [4242] user=app db=loja client=10.20.0.15 app=[unknown] FATAL:  sorry, too many clients already'
+  expect:
+    rule: 110009
+    level: 7
+- name: Servidor pronto para conexões
+  log: '2026-10-22 13:09:22.955 UTC [48] user= db= client= app= LOG:  database system is ready to accept connections'
+  expect:
+    rule: 110010
+    level: 3
+- name: Pedido de desligamento
+  log: '2026-10-22 13:09:23.106 UTC [48] user= db= client= app= LOG:  received fast shutdown request'
+  expect:
+    rule: 110011
+    level: 7
+    mitre:
+    - T1489
+- name: PANIC
+  log: '2026-10-22 14:05:10.120 UTC [4242] user= db= client= app= PANIC:  could not write to file "pg_wal/xlogtemp.88": No space left on device'
+  expect:
+    rule: 110012
+    level: 10
+- name: Processo encerrado por sinal
+  log: '2026-10-22 14:05:10.120 UTC [4242] user= db= client= app= LOG:  server process (PID 4321) was terminated by signal 9: Killed'
+  expect:
+    rule: 110013
+    level: 10
+- name: Recarga da configuração
+  log: '2026-10-22 13:10:37.887 UTC [1] user= db= client= app= LOG:  received SIGHUP, reloading configuration files'
+  expect:
+    rule: 110014
+    level: 3
+- name: Parâmetro alterado
+  log: '2026-10-22 14:05:10.120 UTC [4242] user= db= client= app= LOG:  parameter "work_mem" changed to "64MB"'
+  expect:
+    rule: 110015
+    level: 3
+- name: Parâmetro de log alterado
+  log: '2026-10-22 14:05:10.120 UTC [4242] user= db= client= app= LOG:  parameter "log_statement" changed to "none"'
+  expect:
+    rule: 110016
+    level: 12
+    mitre:
+    - T1562.001
+- name: Consulta comum não alerta
+  log: '2026-10-22 14:05:10.120 UTC [4242] user=app db=loja client=10.20.0.15 app=psql LOG:  statement: SELECT id, nome FROM clientes WHERE id = 42;'
+  expect:
+    no_alert: true
+    rule: 110001
+- name: Campos da consulta
+  log: '2026-10-22 14:05:10.120 UTC [4242] user=app db=loja client=10.20.0.15 app=psql LOG:  statement: SELECT id, nome FROM clientes WHERE id = 42;'
+  expect:
+    rule: 110001
+    fields:
+      db.query: SELECT id, nome FROM clientes WHERE id = 42;
+      dstuser: app
+      db.name: loja
+      db.app: psql
+      srcip: 10.20.0.15
+    alert: false
+- name: Linha STATEMENT é só contexto
+  log: '2026-10-22 13:10:15.280 UTC [81] user=postgres db=postgres client=172.18.0.4 app=psql STATEMENT:  SELECT nome FROM clientes WHERE id = 1 UNION SELECT usename, passwd FROM pg_shadow;'
+  expect:
+    no_alert: true
+    rule: 110003
+- name: Desconexão não alerta
+  log: '2026-10-22 13:09:23.100 UTC [58] user=postgres db=postgres client=[local] app=psql LOG:  disconnection: session time: 0:00:00.010 user=postgres database=postgres host=[local]'
+  expect:
+    no_alert: true

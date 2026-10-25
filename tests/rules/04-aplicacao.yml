@@ -1,0 +1,425 @@
+# Gerado a partir de logs reais do PostgreSQL 17, MySQL 8.4 e MariaDB 11.4 (e variações).
+# Formato descrito em tests/run_tests.py.
+name: Eventos enviados pela aplicação (JSON)
+cases:
+- name: Login no sistema
+  log_format: json
+  log:
+    reefed:
+      source: app
+      app: loja
+      event: login_success
+      message: ''
+      records: 0
+      role: ''
+    srcip: 203.0.113.10
+    dstuser: ana
+  expect:
+    decoder: json
+    rule: 110151
+    level: 3
+    fields:
+      reefed.app: loja
+      dstuser: ana
+      srcip: 203.0.113.10
+- name: Falha de login no sistema
+  log_format: json
+  log:
+    reefed:
+      source: app
+      app: loja
+      event: login_failed
+      message: senha incorreta
+      records: 0
+      role: ''
+    srcip: 203.0.113.10
+    dstuser: ana
+  expect:
+    rule: 110152
+    level: 5
+    mitre:
+    - T1110.001
+- name: Força bruta na tela de login (6 falhas do mesmo IP)
+  log_format: json
+  steps:
+  - log:
+      reefed:
+        source: app
+        app: loja
+        event: login_failed
+        message: ''
+        records: 0
+        role: ''
+      srcip: 203.0.113.10
+      dstuser: ana
+    repeat: 5
+    expect:
+      rule: 110152
+  - log:
+      reefed:
+        source: app
+        app: loja
+        event: login_failed
+        message: ''
+        records: 0
+        role: ''
+      srcip: 203.0.113.10
+      dstuser: bruno
+    expect:
+      rule: 110153
+      level: 10
+      mitre:
+      - T1110
+- name: Falhas de IPs diferentes não somam
+  log_format: json
+  steps:
+  - log:
+      reefed:
+        source: app
+        app: loja
+        event: login_failed
+        message: ''
+        records: 0
+        role: ''
+      srcip: 203.0.113.11
+      dstuser: ana
+  - log:
+      reefed:
+        source: app
+        app: loja
+        event: login_failed
+        message: ''
+        records: 0
+        role: ''
+      srcip: 203.0.113.12
+      dstuser: ana
+  - log:
+      reefed:
+        source: app
+        app: loja
+        event: login_failed
+        message: ''
+        records: 0
+        role: ''
+      srcip: 203.0.113.13
+      dstuser: ana
+  - log:
+      reefed:
+        source: app
+        app: loja
+        event: login_failed
+        message: ''
+        records: 0
+        role: ''
+      srcip: 203.0.113.14
+      dstuser: ana
+  - log:
+      reefed:
+        source: app
+        app: loja
+        event: login_failed
+        message: ''
+        records: 0
+        role: ''
+      srcip: 203.0.113.15
+      dstuser: ana
+  - log:
+      reefed:
+        source: app
+        app: loja
+        event: login_failed
+        message: ''
+        records: 0
+        role: ''
+      srcip: 203.0.113.16
+      dstuser: ana
+    expect:
+      rule: 110152
+- name: Acesso negado
+  log_format: json
+  log:
+    reefed:
+      source: app
+      app: loja
+      event: access_denied
+      message: GET /admin/usuarios
+      records: 0
+      role: ''
+    srcip: 203.0.113.10
+    dstuser: ana
+  expect:
+    rule: 110154
+    level: 5
+- name: Muitos acessos negados para o mesmo usuário
+  log_format: json
+  steps:
+  - log:
+      reefed:
+        source: app
+        app: loja
+        event: access_denied
+        message: ''
+        records: 0
+        role: ''
+      srcip: 203.0.113.10
+      dstuser: ana
+    repeat: 7
+    expect:
+      rule: 110154
+  - log:
+      reefed:
+        source: app
+        app: loja
+        event: access_denied
+        message: ''
+        records: 0
+        role: ''
+      srcip: 203.0.113.99
+      dstuser: ana
+    expect:
+      rule: 110155
+      level: 10
+      mitre:
+      - T1068
+- name: Troca de perfil
+  log_format: json
+  log:
+    reefed:
+      source: app
+      app: loja
+      event: permission_change
+      message: ''
+      records: 0
+      role: vendedor
+    srcip: 203.0.113.10
+    dstuser: ana
+  expect:
+    rule: 110156
+    level: 8
+- name: Perfil administrativo concedido
+  log_format: json
+  log:
+    reefed:
+      source: app
+      app: loja
+      event: permission_change
+      message: ''
+      records: 0
+      role: Administrador
+    srcip: 203.0.113.10
+    dstuser: ana
+  expect:
+    rule: 110157
+    level: 11
+- name: Usuário criado
+  log_format: json
+  log:
+    reefed:
+      source: app
+      app: loja
+      event: user_created
+      message: ''
+      records: 0
+      role: ''
+    srcip: 203.0.113.10
+    dstuser: carlos
+  expect:
+    rule: 110158
+    level: 5
+- name: Exportação pequena
+  log_format: json
+  log:
+    reefed:
+      source: app
+      app: loja
+      event: data_export
+      message: ''
+      records: 50
+      role: ''
+    srcip: 203.0.113.10
+    dstuser: ana
+  expect:
+    rule: 110159
+    level: 3
+- name: Exportação grande (1.000+)
+  log_format: json
+  log:
+    reefed:
+      source: app
+      app: loja
+      event: data_export
+      message: ''
+      records: 5000
+      role: ''
+    srcip: 203.0.113.10
+    dstuser: ana
+  expect:
+    rule: 110160
+    level: 8
+- name: Exportação em massa (10.000+)
+  log_format: json
+  log:
+    reefed:
+      source: app
+      app: loja
+      event: data_export
+      message: ''
+      records: 25000
+      role: ''
+    srcip: 203.0.113.10
+    dstuser: ana
+  expect:
+    rule: 110161
+    level: 11
+    mitre:
+    - T1030
+- name: Exclusão em lote
+  log_format: json
+  log:
+    reefed:
+      source: app
+      app: loja
+      event: bulk_delete
+      message: ''
+      records: 12
+      role: ''
+    srcip: 203.0.113.10
+    dstuser: ana
+  expect:
+    rule: 110162
+    level: 7
+- name: Exclusão em massa (100+)
+  log_format: json
+  log:
+    reefed:
+      source: app
+      app: loja
+      event: bulk_delete
+      message: ''
+      records: 500
+      role: ''
+    srcip: 203.0.113.10
+    dstuser: ana
+  expect:
+    rule: 110163
+    level: 11
+- name: SQL injection bloqueada pela aplicação
+  log_format: json
+  log:
+    reefed:
+      source: app
+      app: loja
+      event: sql_injection_blocked
+      message: id=1' OR '1'='1
+      records: 0
+      role: ''
+    srcip: 203.0.113.10
+    dstuser: ana
+  expect:
+    rule: 110164
+    level: 12
+    mitre:
+    - T1190
+    groups:
+    - attack
+- name: Configuração alterada
+  log_format: json
+  log:
+    reefed:
+      source: app
+      app: loja
+      event: config_change
+      message: SMTP trocado
+      records: 0
+      role: ''
+    srcip: 203.0.113.10
+    dstuser: ana
+  expect:
+    rule: 110165
+    level: 7
+- name: Evento livre crítico
+  log_format: json
+  log:
+    reefed:
+      source: app
+      app: loja
+      event: backup_failed
+      message: backup noturno falhou
+      records: 0
+      role: ''
+      severity: critical
+    srcip: 203.0.113.10
+    dstuser: ana
+  expect:
+    rule: 110170
+    level: 12
+- name: Evento livre de severidade alta
+  log_format: json
+  log:
+    reefed:
+      source: app
+      app: loja
+      event: pagamento_recusado_em_massa
+      message: ''
+      records: 0
+      role: ''
+      severity: alta
+    srcip: 203.0.113.10
+    dstuser: ana
+  expect:
+    rule: 110171
+    level: 10
+- name: Evento livre de severidade média
+  log_format: json
+  log:
+    reefed:
+      source: app
+      app: loja
+      event: senha_expirada
+      message: ''
+      records: 0
+      role: ''
+      severity: medium
+    srcip: 203.0.113.10
+    dstuser: ana
+  expect:
+    rule: 110172
+    level: 7
+- name: Evento livre sem severidade
+  log_format: json
+  log:
+    reefed:
+      source: app
+      app: loja
+      event: relatorio_gerado
+      message: ''
+      records: 0
+      role: ''
+    srcip: 203.0.113.10
+    dstuser: ana
+  expect:
+    rule: 110173
+    level: 3
+- name: Evento conhecido ignora a severidade enviada
+  log_format: json
+  log:
+    reefed:
+      source: app
+      app: loja
+      event: login_success
+      message: ''
+      records: 0
+      role: ''
+      severity: critical
+    srcip: 203.0.113.10
+    dstuser: ana
+  expect:
+    rule: 110151
+    level: 3
+- name: JSON que não é da aplicação não alerta
+  log_format: json
+  log:
+    servico: outro
+    status: ok
+  expect:
+    no_alert: true
