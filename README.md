@@ -1,16 +1,23 @@
 # Reefed
 
-**SIEM para bancos de dados, baseado no [Wazuh](https://wazuh.com) 4.14.**
+![CI](https://github.com/BarrinDev/Reefed/actions/workflows/ci.yml/badge.svg)
 
-O Reefed vigia servidores PostgreSQL, MySQL e MariaDB e o sistema que usa esses bancos.
+SIEM para bancos de dados, baseado no [Wazuh](https://wazuh.com) 4.14.
+
+O banco é onde ficam os dados que um atacante quer. Força bruta na senha, SQL injection,
+`DROP TABLE` e exportação de uma tabela inteira deixam rastro nos logs do banco, mas
+alguém precisa ler esses logs e avisar na hora.
+
+O Reefed faz isso para PostgreSQL, MySQL e MariaDB e para o sistema que usa esses bancos.
 Ele junta os logs do banco, do sistema operacional, da autenticação e do firewall,
 reconhece ataques com 145 regras próprias mapeadas no MITRE ATT&CK e avisa por Telegram,
 Slack e e-mail. Quando alguém tenta adivinhar senhas, o IP é bloqueado no firewall do
 servidor de banco. Uma API deixa o seu sistema mandar eventos (login, exportação, troca
 de perfil) e consultar alertas e status.
 
-Tudo sobe com Docker Compose num servidor só, e um laboratório simula os ataques para
-provar que as regras funcionam (`make lab`).
+Tudo sobe com Docker Compose num servidor só. Pra ver funcionando, rode `./setup.sh` e
+depois `make lab`: o laboratório sobe os três bancos, ataca de um IP desconhecido e confere
+se cada ataque virou alerta, bloqueio e notificação.
 
 ![Painel do Reefed no Wazuh dashboard, com alertas do laboratório](docs/img/painel.png)
 
